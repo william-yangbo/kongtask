@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/william-yangbo/kongtask/internal/logger"
 	"github.com/william-yangbo/kongtask/internal/migrate"
 	"github.com/william-yangbo/kongtask/internal/worker"
 )
@@ -19,17 +21,39 @@ var (
 	cfgFile     string
 	databaseURL string
 	schema      string
+	schemaOnly  bool
+	once        bool
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "kongtask",
-	Short: "A Go implementation of graphile-worker v0.1.0",
-	Long: `kongtask is a Go implementation of the original graphile-worker v0.1.0,
+	Short: "A Go implementation of graphile-worker v0.2.0",
+	Long: `kongtask is a Go implementation of the original graphile-worker v0.2.0,
 providing background job processing for PostgreSQL databases.
 
 This implementation maintains strict compatibility with the original TypeScript
 version's schema and behavior.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if schemaOnly {
+			if err := runMigrate(); err != nil {
+				log.Fatalf("Schema migration failed: %v", err)
+			}
+			fmt.Println("Schema migration completed successfully")
+			return
+		}
+
+		if once {
+			if err := runWorkerOnce(); err != nil {
+				log.Fatalf("Worker failed: %v", err)
+			}
+			return
+		}
+
+		if err := runWorker(); err != nil {
+			log.Fatalf("Worker failed: %v", err)
+		}
+	},
 }
 
 // migrateCmd represents the migrate command
@@ -70,6 +94,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.kongtask.yaml)")
 	rootCmd.PersistentFlags().StringVar(&databaseURL, "database-url", "", "PostgreSQL connection URL")
 	rootCmd.PersistentFlags().StringVar(&schema, "schema", "graphile_worker", "Schema name for worker tables")
+
+	// v0.2.0 flags
+	rootCmd.Flags().BoolVar(&schemaOnly, "schema-only", false, "Just install (or update) the database schema, then exit")
+	rootCmd.Flags().BoolVar(&once, "once", false, "Run until there are no runnable jobs left, then exit")
 
 	// Bind flags to viper
 	viper.BindPFlag("database_url", rootCmd.PersistentFlags().Lookup("database-url"))
@@ -179,12 +207,13 @@ func runWorker() error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Create worker
-	w := worker.NewWorker(pool, schemaName)
+	// Create worker with custom logger
+	customLogger := logger.NewLogger(logger.ConsoleLogFactory)
+	w := worker.NewWorker(pool, schemaName, worker.WithLogger(customLogger))
 
-	// Register example task handler
-	w.RegisterTask("example_task", func(ctx context.Context, job *worker.Job) error {
-		log.Printf("Processing example task with payload: %s", string(job.Payload))
+	// Register example task handler (v0.2.0 signature)
+	w.RegisterTask("example_task", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+		helpers.Logger.Info(fmt.Sprintf("Processing example task with payload: %s", string(payload)))
 		return nil
 	})
 
@@ -197,6 +226,50 @@ func runWorker() error {
 
 	log.Println("Worker stopped gracefully")
 	return nil
+}
+
+func runWorkerOnce() error {
+	ctx := context.Background()
+
+	dbURL := viper.GetString("database_url")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	}
+
+	schemaName := viper.GetString("schema")
+	if schemaName == "" {
+		schemaName = "graphile_worker"
+	}
+
+	// Create connection pool
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to create connection pool: %w", err)
+	}
+	defer pool.Close()
+
+	// Test connection
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Create worker with custom logger
+	customLogger := logger.NewLogger(logger.ConsoleLogFactory)
+	w := worker.NewWorker(pool, schemaName, worker.WithLogger(customLogger))
+
+	// Register example task handler (v0.2.0 signature)
+	w.RegisterTask("example_task", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+		helpers.Logger.Info(fmt.Sprintf("Processing example task with payload: %s", string(payload)))
+		return nil
+	})
+
+	log.Printf("Starting worker (once mode) with schema: %s", schemaName)
+
+	// Run worker once - process all available jobs then exit
+	return w.RunOnce(ctx)
 }
 
 func main() {

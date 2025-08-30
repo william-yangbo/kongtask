@@ -31,7 +31,7 @@ func TestBasicPerformance(t *testing.T) {
 	w := worker.NewWorker(pool, "graphile_worker")
 
 	var processedJobs int64
-	w.RegisterTask("performance_test", func(ctx context.Context, job *worker.Job) error {
+	w.RegisterTask("performance_test", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 		atomic.AddInt64(&processedJobs, 1)
 		return nil
 	})
@@ -87,15 +87,15 @@ func TestBulkJobsPerformance(t *testing.T) {
 	start := time.Now()
 
 	w := worker.NewWorker(pool, "graphile_worker")
-	w.RegisterTask("log_if_999", func(ctx context.Context, job *worker.Job) error {
+	w.RegisterTask("log_if_999", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 		atomic.AddInt64(&processedJobs, 1)
 
 		// Parse job payload to get id
-		var payload struct {
+		var payloadData struct {
 			ID int `json:"id"`
 		}
-		if err := json.Unmarshal(job.Payload, &payload); err == nil {
-			if payload.ID == 999 {
+		if err := json.Unmarshal(payload, &payloadData); err == nil {
+			if payloadData.ID == 999 {
 				t.Log("Found 999!")
 				foundTarget = true
 			}
@@ -142,9 +142,9 @@ func TestLatencyPerformance(t *testing.T) {
 	var mutex sync.Mutex
 
 	w := worker.NewWorker(pool, "graphile_worker")
-	w.RegisterTask("latency_test", func(ctx context.Context, job *worker.Job) error {
+	w.RegisterTask("latency_test", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 		// Measure latency from job creation to processing
-		createdAt := job.CreatedAt
+		createdAt := helpers.Job.CreatedAt
 		processingTime := time.Since(createdAt)
 
 		mutex.Lock()
@@ -194,7 +194,7 @@ func TestStartupShutdownPerformance(t *testing.T) {
 	// Measure startup time
 	startTime := time.Now()
 	w := worker.NewWorker(pool, "graphile_worker")
-	w.RegisterTask("test_task", func(ctx context.Context, job *worker.Job) error {
+	w.RegisterTask("test_task", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 		return nil
 	})
 
@@ -229,7 +229,7 @@ func TestMemoryPerformance(t *testing.T) {
 
 	var processedJobs int64
 	w := worker.NewWorker(pool, "graphile_worker")
-	w.RegisterTask("memory_test", func(ctx context.Context, job *worker.Job) error {
+	w.RegisterTask("memory_test", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 		// Simulate some memory usage
 		data := make([]byte, 1024*10) // 10KB per job
 		_ = data

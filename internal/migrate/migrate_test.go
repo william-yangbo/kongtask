@@ -45,10 +45,10 @@ func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, migrationCount, "Should have exactly one migration record")
 
-	var migrationID int
-	err = conn.QueryRow(ctx, "SELECT id FROM graphile_worker.migrations LIMIT 1").Scan(&migrationID)
+	var maxMigrationID int
+	err = conn.QueryRow(ctx, "SELECT MAX(id) FROM graphile_worker.migrations").Scan(&maxMigrationID)
 	require.NoError(t, err)
-	assert.Equal(t, 1, migrationID, "Migration ID should be 1")
+	assert.Equal(t, 1, maxMigrationID, "Latest migration ID should be 1")
 
 	// Verify job functions work properly
 	_, err = conn.Exec(ctx, "SELECT graphile_worker.add_job('assert_jobs_work')")

@@ -6,17 +6,18 @@
 
 **High-performance PostgreSQL job queue for Go** - 700+ jobs/second with 50ms latency.
 
-KongTask is a Go port of [graphile-worker](https://github.com/graphile/worker) with 100% schema compatibility and superior performance.
+KongTask is a Go port of [graphile-worker v0.2.0](https://github.com/graphile/worker) with 100% schema compatibility and superior performance.
 
 ## Features
 
 - 🚀 **High Performance**: 700+ jobs/sec, 50ms latency
-- 🔄 **Drop-in Compatible**: Works with existing graphile-worker databases
+- 🔄 **Drop-in Compatible**: Works with existing graphile-worker v0.2.0 databases
 - ⚡ **Real-time Processing**: PostgreSQL LISTEN/NOTIFY
 - 🔁 **Auto Retries**: Exponential backoff (25 attempts)
 - 📅 **Job Scheduling**: Run now or schedule for later
 - 🎯 **Named Queues**: Serialize related jobs
-- 🛠️ **Production Ready**: Battle-tested with comprehensive test suite
+- � **Structured Logging**: Custom logger support with job context
+- �🛠️ **Production Ready**: Battle-tested with comprehensive test suite
 
 ## Quick Start
 
@@ -30,7 +31,9 @@ go install github.com/william-yangbo/kongtask/cmd/kongtask@latest
 
 ```bash
 export DATABASE_URL="postgres://user:pass@localhost/mydb"
-kongtask migrate
+kongtask --schema-only  # Install schema only
+# or
+kongtask migrate        # Run full migration
 ```
 
 ### 3. Add a Job
@@ -46,8 +49,10 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "log"
     "github.com/william-yangbo/kongtask/internal/worker"
+    "github.com/william-yangbo/kongtask/internal/logger"
     "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,19 +60,42 @@ func main() {
     pool, _ := pgxpool.New(context.Background(), "postgres://user:pass@localhost/mydb")
     defer pool.Close()
 
-    w, _ := worker.NewPool(pool, &worker.Options{Concurrency: 5})
+    // Create worker with custom logger (v0.2.0)
+    customLogger := logger.NewLogger(logger.ConsoleLogFactory)
+    w := worker.NewWorker(pool, "graphile_worker", worker.WithLogger(customLogger))
 
-    w.RegisterTask("send_email", func(ctx context.Context, job *worker.Job) error {
-        log.Printf("Sending email: %s", job.Payload)
+    // Register task with new v0.2.0 signature
+    w.RegisterTask("send_email", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+        var emailData map[string]string
+        json.Unmarshal(payload, &emailData)
+
+        helpers.Logger.Info("Sending email to: " + emailData["to"])
         // Your email logic here
         return nil
     })
 
-    w.Start(context.Background()) // Blocks and processes jobs
+    w.Run(context.Background()) // Blocks and processes jobs
 }
 ```
 
 **That's it!** Your jobs will be processed as they're added.
+
+## CLI Usage
+
+```bash
+# Process jobs continuously
+kongtask
+
+# Process all available jobs then exit
+kongtask --once
+
+# Install/update database schema only
+kongtask --schema-only
+
+# Legacy commands still supported
+kongtask worker
+kongtask migrate
+```
 
 ## Performance
 

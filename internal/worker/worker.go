@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/william-yangbo/kongtask/internal/logger"
 )
 
 // Job represents a job from the database
@@ -17,7 +17,6 @@ type Job struct {
 	QueueName      string          `json:"queue_name"`
 	TaskIdentifier string          `json:"task_identifier"`
 	Payload        json.RawMessage `json:"payload"`
-	Priority       int             `json:"priority"`
 	RunAt          time.Time       `json:"run_at"`
 	AttemptCount   int             `json:"attempts"`
 	MaxAttempts    int             `json:"max_attempts"`
@@ -26,8 +25,8 @@ type Job struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-// TaskHandler is a function that processes a job
-type TaskHandler func(ctx context.Context, job *Job) error
+// TaskHandler is a function that processes a job (v0.2.0 signature with helpers)
+type TaskHandler func(ctx context.Context, payload json.RawMessage, helpers *Helpers) error
 
 // Worker represents a job worker
 type Worker struct {
@@ -35,15 +34,34 @@ type Worker struct {
 	schema   string
 	handlers map[string]TaskHandler
 	workerID string
+	logger   *logger.Logger
 }
 
 // NewWorker creates a new worker instance
-func NewWorker(pool *pgxpool.Pool, schema string) *Worker {
-	return &Worker{
+func NewWorker(pool *pgxpool.Pool, schema string, opts ...WorkerOption) *Worker {
+	w := &Worker{
 		pool:     pool,
 		schema:   schema,
 		handlers: make(map[string]TaskHandler),
 		workerID: fmt.Sprintf("worker-%d", time.Now().UnixNano()),
+		logger:   logger.DefaultLogger.Scope(logger.LogScope{Label: "worker"}),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(w)
+	}
+
+	return w
+}
+
+// WorkerOption is a function that configures a Worker
+type WorkerOption func(*Worker)
+
+// WithLogger sets a custom logger for the worker
+func WithLogger(l *logger.Logger) WorkerOption {
+	return func(w *Worker) {
+		w.logger = l.Scope(logger.LogScope{Label: "worker"})
 	}
 }
 
@@ -82,7 +100,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT * FROM %s.get_job($1)", w.schema)
+	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, run_at, attempts, max_attempts, last_error, created_at, updated_at FROM %s.get_job($1)", w.schema)
 	row := conn.QueryRow(ctx, query, w.workerID)
 
 	var job Job
@@ -90,7 +108,6 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	var queueName *string
 	var taskIdentifier *string
 	var payload *json.RawMessage
-	var priority *int
 	var runAt *time.Time
 	var attemptCount *int
 	var maxAttempts *int
@@ -103,7 +120,6 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		&queueName,
 		&taskIdentifier,
 		&payload,
-		&priority,
 		&runAt,
 		&attemptCount,
 		&maxAttempts,
@@ -128,7 +144,6 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	job.QueueName = *queueName
 	job.TaskIdentifier = *taskIdentifier
 	job.Payload = *payload
-	job.Priority = *priority
 	job.RunAt = *runAt
 	job.AttemptCount = *attemptCount
 	job.MaxAttempts = *maxAttempts
@@ -180,20 +195,30 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("no handler registered for task: %s", job.TaskIdentifier)
 	}
 
-	log.Printf("Processing job %d: %s", job.ID, job.TaskIdentifier)
+	// Create scoped logger for this job
+	jobLogger := w.logger.Scope(logger.LogScope{
+		WorkerID:       w.workerID,
+		TaskIdentifier: job.TaskIdentifier,
+		JobID:          &job.ID,
+	})
 
-	err := handler(ctx, job)
+	jobLogger.Info(fmt.Sprintf("Processing job %d: %s", job.ID, job.TaskIdentifier))
+
+	// Create helpers for the task
+	helpers := w.CreateHelpers(ctx, job)
+
+	err := handler(ctx, job.Payload, helpers)
 	if err != nil {
-		log.Printf("Job %d failed: %v", job.ID, err)
+		jobLogger.Error(fmt.Sprintf("Job %d failed: %v", job.ID, err))
 		if failErr := w.FailJob(ctx, job.ID, err.Error()); failErr != nil {
-			log.Printf("Failed to mark job %d as failed: %v", job.ID, failErr)
+			jobLogger.Error(fmt.Sprintf("Failed to mark job %d as failed: %v", job.ID, failErr))
 		}
 		return err
 	}
 
-	log.Printf("Job %d completed successfully", job.ID)
+	jobLogger.Info(fmt.Sprintf("Job %d completed successfully", job.ID))
 	if completeErr := w.CompleteJob(ctx, job.ID); completeErr != nil {
-		log.Printf("Failed to mark job %d as completed: %v", job.ID, completeErr)
+		jobLogger.Error(fmt.Sprintf("Failed to mark job %d as completed: %v", job.ID, completeErr))
 		return completeErr
 	}
 
@@ -202,17 +227,18 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 
 // Run starts the worker loop
 func (w *Worker) Run(ctx context.Context) error {
-	log.Printf("Worker %s starting", w.workerID)
+	workerLogger := w.logger.Scope(logger.LogScope{WorkerID: w.workerID})
+	workerLogger.Info(fmt.Sprintf("Worker %s starting", w.workerID))
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Worker %s stopping", w.workerID)
+			workerLogger.Info(fmt.Sprintf("Worker %s stopping", w.workerID))
 			return ctx.Err()
 		default:
 			job, err := w.GetJob(ctx)
 			if err != nil {
-				log.Printf("Failed to get job: %v", err)
+				workerLogger.Error(fmt.Sprintf("Failed to get job: %v", err))
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -224,7 +250,41 @@ func (w *Worker) Run(ctx context.Context) error {
 			}
 
 			if err := w.ProcessJob(ctx, job); err != nil {
-				log.Printf("Job processing failed: %v", err)
+				workerLogger.Error(fmt.Sprintf("Job processing failed: %v", err))
+			}
+		}
+	}
+}
+
+// RunOnce processes all available jobs then exits (v0.2.0 feature)
+func (w *Worker) RunOnce(ctx context.Context) error {
+	workerLogger := w.logger.Scope(logger.LogScope{WorkerID: w.workerID})
+	workerLogger.Info(fmt.Sprintf("Worker %s starting (once mode)", w.workerID))
+
+	processedJobs := 0
+	for {
+		select {
+		case <-ctx.Done():
+			workerLogger.Info(fmt.Sprintf("Worker %s stopping (context cancelled)", w.workerID))
+			return ctx.Err()
+		default:
+			job, err := w.GetJob(ctx)
+			if err != nil {
+				workerLogger.Error(fmt.Sprintf("Failed to get job: %v", err))
+				return err
+			}
+
+			if job == nil {
+				// No jobs available, exit
+				workerLogger.Info(fmt.Sprintf("Worker %s finished - no more jobs available. Processed %d jobs", w.workerID, processedJobs))
+				return nil
+			}
+
+			if err := w.ProcessJob(ctx, job); err != nil {
+				workerLogger.Error(fmt.Sprintf("Job processing failed: %v", err))
+				// Continue processing other jobs even if one fails
+			} else {
+				processedJobs++
 			}
 		}
 	}
