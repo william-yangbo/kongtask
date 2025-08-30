@@ -17,7 +17,8 @@ func StartPostgres(t testing.TB) (string, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 
-	pg, err := postgres.RunContainer(ctx,
+	pg, err := postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("postgres"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
