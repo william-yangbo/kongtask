@@ -6,6 +6,7 @@ KongTask documentation is organized into focused guides for different use cases.
 
 - **[README](../README.md)** - Quick start and basic examples
 - **[API Reference](api.md)** - Complete API documentation
+- **[Architecture Design](architecture.md)** - System design and component overview
 
 ## In-Depth Guides
 
@@ -21,6 +22,13 @@ KongTask documentation is organized into focused guides for different use cases.
 - [Setting up the database](../README.md#2-setup-database)
 - [Creating your first job](../README.md#3-add-a-job)
 - [Registering task handlers](api.md#registertask)
+
+### Architecture & Design
+
+- [System overview](architecture.md#system-overview)
+- [Core components](architecture.md#core-components)
+- [Data flow architecture](architecture.md#data-flow-architecture)
+- [Performance architecture](architecture.md#performance-architecture)
 
 ### Advanced Features
 
