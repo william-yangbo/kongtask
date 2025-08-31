@@ -184,3 +184,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspired by [graphile-worker](https://github.com/graphile/worker)
 - Built with [pgx](https://github.com/jackc/pgx) for PostgreSQL connectivity
 - Thanks to the Go community for excellent tooling and libraries
+🔒 **Security**: GitHub Advanced Security enabled with CodeQL + gosec scanning
