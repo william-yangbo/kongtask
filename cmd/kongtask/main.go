@@ -241,15 +241,7 @@ func runWorker() error {
 		schemaName = "graphile_worker"
 	}
 
-	// Get CLI parameters or use defaults
-	concurrency := viper.GetInt("jobs")
-	if concurrency <= 0 {
-		concurrency = jobs
-		if concurrency <= 0 {
-			concurrency = worker.ConcurrentJobs
-		}
-	}
-
+	// Get CLI parameters or use defaults (concurrency not needed for single worker)
 	maxPool := viper.GetInt("max_pool_size")
 	if maxPool <= 0 {
 		maxPool = maxPoolSize
