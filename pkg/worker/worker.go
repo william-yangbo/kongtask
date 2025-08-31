@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -20,6 +22,18 @@ const (
 	ErrorRetryDelay      = 1 * time.Second // Delay before retrying after error
 	FatalErrorRetryDelay = 5 * time.Second // Delay before retrying after fatal error
 )
+
+// generateWorkerID generates a cryptographically secure worker ID
+// Inspired by graphile-worker v0.5.0 improvement (commit 69938b4)
+func generateWorkerID() string {
+	// Generate 9 random bytes (same as graphile-worker v0.5.0)
+	randomBytes := make([]byte, 9)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("worker-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("worker-%s", hex.EncodeToString(randomBytes))
+}
 
 // Job represents a job from the database (v0.4.0 alignment)
 type Job struct {
@@ -77,7 +91,7 @@ func NewWorker(pool *pgxpool.Pool, schema string, opts ...WorkerOption) *Worker 
 		pool:             pool,
 		schema:           schema,
 		handlers:         make(map[string]TaskHandler),
-		workerID:         fmt.Sprintf("worker-%d", time.Now().UnixNano()),
+		workerID:         generateWorkerID(), // Use secure worker ID generation (v0.5.0 improvement)
 		logger:           logger.DefaultLogger.Scope(logger.LogScope{Label: "worker"}),
 		nudgeCh:          make(chan struct{}, 1),
 		pollInterval:     DefaultPollInterval,

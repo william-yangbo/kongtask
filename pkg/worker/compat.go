@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -35,7 +37,16 @@ func RunTaskListOnce(ctx context.Context, tasks map[string]TaskHandler, pool *pg
 		options.Logger = logger.DefaultLogger
 	}
 	if options.WorkerID == "" {
-		options.WorkerID = fmt.Sprintf("worker-once-%d", time.Now().UnixNano())
+		// Use crypto-secure random generation instead of timestamp
+		// This prevents worker ID collisions when multiple workers start simultaneously
+		bytes := make([]byte, 9)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			// Fallback to time-based if crypto fails (should be extremely rare)
+			options.WorkerID = fmt.Sprintf("worker-once-%d", time.Now().UnixNano())
+		} else {
+			options.WorkerID = fmt.Sprintf("worker-once-%s", hex.EncodeToString(bytes))
+		}
 	}
 
 	// Create a worker

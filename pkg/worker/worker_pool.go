@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -16,6 +18,20 @@ type WorkerPoolOptions struct {
 	Schema       string         // Database schema (default: "graphile_worker")
 	PollInterval time.Duration  // Polling interval (default: 1s)
 	Logger       *logger.Logger // Logger instance
+}
+
+// generatePoolID generates a cryptographically secure random pool identifier
+// This improves upon timestamp-based approaches by preventing collisions
+// when multiple pools start simultaneously
+func generatePoolID() string {
+	// Generate 9 random bytes (same as graphile-worker v0.5.0+)
+	bytes := make([]byte, 9)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		// Fallback to time-based if crypto fails (should be extremely rare)
+		return fmt.Sprintf("pool_%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(bytes)
 }
 
 // WorkerPool represents a pool of workers with graceful shutdown
@@ -83,9 +99,12 @@ func RunTaskList(ctx context.Context, tasks map[string]TaskHandler, pool *pgxpoo
 	}
 
 	// Create workers
+	poolID := generatePoolID() // Generate unique pool identifier
 	for i := 0; i < options.Concurrency; i++ {
 		worker := NewWorker(pool, options.Schema)
-		worker.workerID = fmt.Sprintf("worker-%d-%d", time.Now().Unix(), i)
+		// Use pool ID + worker index for unique worker identification
+		// This maintains worker uniqueness while using secure random generation
+		worker.workerID = fmt.Sprintf("worker-%s-%d", poolID, i)
 
 		// Register all tasks
 		for taskName, handler := range tasks {
