@@ -1,5 +1,5 @@
 // Package migrate provides database migration functionality for kongtask.
-// This implementation strictly aligns with graphile-worker v0.1.0 migrate.ts behavior.
+// This implementation aligns with graphile-worker v0.4.0 behavior.
 package migrate
 
 import (
@@ -19,7 +19,7 @@ import (
 //go:embed sql/*.sql
 var migrationsFS embed.FS
 
-// Migrator handles database migrations, strictly following graphile-worker v0.1.0 behavior
+// Migrator handles database migrations, following graphile-worker v0.4.0 behavior
 type Migrator struct {
 	pool   *pgxpool.Pool
 	schema string
@@ -45,16 +45,16 @@ func NewMigrator(pool *pgxpool.Pool, schema string) *Migrator {
 
 // installSchema installs the base database schema (mirrors TypeScript installSchema function)
 func (m *Migrator) installSchema(ctx context.Context, conn *pgxpool.Conn) error {
-	// Exactly the same SQL as TypeScript version
-	schemaSQL := `
+	// Create the schema with the configured name
+	schemaSQL := fmt.Sprintf(`
 		CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 		CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
-		CREATE SCHEMA graphile_worker;
-		CREATE TABLE graphile_worker.migrations(
+		CREATE SCHEMA %s;
+		CREATE TABLE %s.migrations(
 			id int PRIMARY KEY,
 			ts timestamptz DEFAULT now() NOT NULL
 		);
-	`
+	`, m.schema, m.schema)
 
 	_, err := conn.Exec(ctx, schemaSQL)
 	if err != nil {
@@ -135,15 +135,23 @@ func (m *Migrator) getLatestMigration(ctx context.Context, conn *pgxpool.Conn) (
 	return 0, true, nil // Table exists but no migration records
 }
 
-// runMigration executes a single migration (mirrors TypeScript runMigration function)
+// runMigration executes a single migration with schema replacement (mirrors graphile-worker v0.4.0)
 func (m *Migrator) runMigration(ctx context.Context, tx pgx.Tx, migration MigrationInfo) error {
+	// Replace :GRAPHILE_WORKER_SCHEMA with actual schema name (same as graphile-worker)
+	migrationSQL := migration.Content
+
+	// Use simple string replacement like graphile-worker does
+	migrationSQL = regexp.MustCompile(`:GRAPHILE_WORKER_SCHEMA`).ReplaceAllString(migrationSQL, m.schema)
+
+	// Also replace hardcoded "graphile_worker" references for backward compatibility
+	migrationSQL = regexp.MustCompile(`\bgraphile_worker\.`).ReplaceAllString(migrationSQL, m.schema+".")
+	migrationSQL = regexp.MustCompile(`\bgraphile_worker\b`).ReplaceAllString(migrationSQL, m.schema)
+
 	// Execute migration SQL
-	_, err := tx.Exec(ctx, migration.Content)
+	_, err := tx.Exec(ctx, migrationSQL)
 	if err != nil {
 		return fmt.Errorf("failed to execute migration %s: %w", migration.Filename, err)
-	}
-
-	// Record migration (same table structure as v0.1.0: only id and ts fields)
+	} // Record migration (v0.4.0 still uses simple id/ts structure)
 	_, err = tx.Exec(ctx,
 		fmt.Sprintf("INSERT INTO %s.migrations (id) VALUES ($1)", m.schema),
 		migration.Number,
@@ -155,7 +163,7 @@ func (m *Migrator) runMigration(ctx context.Context, tx pgx.Tx, migration Migrat
 	return nil
 }
 
-// Migrate executes database migrations (strictly follows TypeScript migrate function logic)
+// Migrate executes database migrations (follows graphile-worker v0.4.0 migrate function logic)
 func (m *Migrator) Migrate(ctx context.Context) error {
 	conn, err := m.pool.Acquire(ctx)
 	if err != nil {
@@ -169,7 +177,7 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 		return err
 	}
 
-	// Install base schema if needed (same condition as TypeScript version)
+	// Install base schema if needed (same condition as v0.4.0)
 	if !schemaExists {
 		if err := m.installSchema(ctx, conn); err != nil {
 			return err
@@ -183,7 +191,7 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 		return err
 	}
 
-	// Execute unapplied migrations (each migration in its own transaction, same as v0.1.0)
+	// Execute unapplied migrations (each migration in its own transaction, same as v0.4.0)
 	for _, migration := range migrations {
 		if migration.Number > latestMigration {
 			tx, err := conn.Begin(ctx)

@@ -2,16 +2,16 @@ package logger
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"strings"
 )
 
 // LogScope represents the scope/context information for logging
 type LogScope struct {
-	Label          string `json:"label,omitempty"`
-	WorkerID       string `json:"worker_id,omitempty"`
-	TaskIdentifier string `json:"task_identifier,omitempty"`
-	JobID          *int   `json:"job_id,omitempty"`
+	Label          string  `json:"label,omitempty"`
+	WorkerID       string  `json:"worker_id,omitempty"`
+	TaskIdentifier string  `json:"task_identifier,omitempty"`
+	JobID          *string `json:"job_id,omitempty"` // Changed to string in v0.4.0
 }
 
 // LogMeta represents additional metadata for structured logging
@@ -102,48 +102,58 @@ func (l *Logger) Debug(message string, meta ...LogMeta) {
 // ConsoleLogFactory is the default console-based log factory
 func ConsoleLogFactory(scope LogScope) LogFunction {
 	return func(level LogLevel, message string, meta ...LogMeta) {
-		// Skip debug messages unless explicitly enabled
-		if level == LogLevelDebug && os.Getenv("KONGTASK_DEBUG") == "" {
+		// Skip debug messages unless explicitly enabled (mirrors TypeScript GRAPHILE_WORKER_DEBUG)
+		if level == LogLevelDebug && os.Getenv("GRAPHILE_WORKER_DEBUG") == "" && os.Getenv("KONGTASK_DEBUG") == "" {
 			return
 		}
 
-		// Build scope string
+		// Build scope string exactly like TypeScript
 		scopeStr := scope.Label
 		if scopeStr == "" {
 			scopeStr = "core"
 		}
 
+		// Build worker part exactly like TypeScript
+		workerPart := ""
 		if scope.WorkerID != "" {
-			scopeStr += fmt.Sprintf("(%s", scope.WorkerID)
+			workerPart = fmt.Sprintf("(%s", scope.WorkerID)
 			if scope.TaskIdentifier != "" {
-				scopeStr += fmt.Sprintf(": %s", scope.TaskIdentifier)
+				workerPart += fmt.Sprintf(": %s", scope.TaskIdentifier)
 			}
 			if scope.JobID != nil {
-				scopeStr += fmt.Sprintf("{%d}", *scope.JobID)
+				workerPart += fmt.Sprintf("{%s}", *scope.JobID)
 			}
-			scopeStr += ")"
+			workerPart += ")"
 		}
 
-		// Determine log method
+		// Determine log method (match TypeScript console methods)
 		var logMethod func(string, ...interface{})
 		switch level {
 		case LogLevelError:
-			logMethod = log.Printf
+			logMethod = func(format string, args ...interface{}) {
+				fmt.Fprintf(os.Stderr, format+"\n", args...)
+			}
 		case LogLevelWarning:
-			logMethod = log.Printf
+			logMethod = func(format string, args ...interface{}) {
+				fmt.Fprintf(os.Stderr, format+"\n", args...)
+			}
 		case LogLevelInfo:
-			logMethod = log.Printf
+			logMethod = func(format string, args ...interface{}) {
+				fmt.Fprintf(os.Stdout, format+"\n", args...)
+			}
 		default:
-			logMethod = log.Printf
+			logMethod = func(format string, args ...interface{}) {
+				fmt.Fprintf(os.Stdout, format+"\n", args...)
+			}
 		}
 
-		// Format message
-		prefix := fmt.Sprintf("[%s] %s", scopeStr, string(level))
-		logMethod("%s: %s", prefix, message)
+		// Format message exactly like TypeScript: [%s%s] %s: %s (with uppercase level)
+		levelStr := strings.ToUpper(string(level))
+		logMethod("[%s%s] %s: %s", scopeStr, workerPart, levelStr, message)
 
-		// Log metadata if present
+		// Log metadata if present (TypeScript version doesn't output metadata by default)
 		if len(meta) > 0 && len(meta[0]) > 0 {
-			logMethod("%s: metadata: %+v", prefix, meta[0])
+			logMethod("[%s%s] %s: metadata: %+v", scopeStr, workerPart, levelStr, meta[0])
 		}
 	}
 }

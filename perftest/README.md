@@ -6,40 +6,63 @@
 
 ### 🎯 测试对应关系
 
-| 原始 perfTest         | KongTask 测试             | 描述                         |
-| --------------------- | ------------------------- | ---------------------------- |
-| `init.sql`            | `TestBulkJobsPerformance` | 测试 20,000 个作业的处理性能 |
-| `latencyTest.js`      | `TestLatencyPerformance`  | 测试作业延迟性能             |
-| `run.sh`              | `TestBulkJobsPerformance` | 测试启动和批量处理性能       |
-| `tasks/log_if_999.js` | `log_if_999` 任务处理器   | 当 ID 为 999 时记录日志      |
+| 原始 perfTest (v0.4.0) | KongTask 测试                   | 描述                       |
+| ---------------------- | ------------------------------- | -------------------------- |
+| `init.js`              | `TestParallelWorkerPerformance` | 动态调度 20,000 个作业     |
+| `run.js`               | `TestParallelWorkerPerformance` | 4 个并行 worker，10 个并发 |
+| `latencyTest.js`       | `TestLatencyPerformance`        | 测试作业延迟性能           |
+| `recreateDb.js`        | TestContainers 自动管理         | 每个测试自动重建数据库     |
+| `tasks/log_if_999.js`  | `log_if_999` 任务处理器         | 当 ID 为 999 时记录日志    |
 
 ### 🧪 测试套件
 
-1. **BulkJobsPerformance** - 批量作业性能测试
+1. **BasicPerformance** - 基础性能测试
 
-   - 调度 20,000 个作业
-   - 使用 10 个并发工作器处理
+   - 使用 WorkerUtils (v0.4.0) 调度作业
+   - 验证基本处理能力
+   - 测量基础吞吐量
+
+2. **JobKeyPerformance** - JobKey 性能测试 (v0.4.0 新功能)
+
+   - 测试 JobKey 去重功能
+   - 验证 1000 次重复调度只创建 1 个作业
+   - 确保 JobKey 特性正常工作
+
+3. **StringIDPerformance** - 字符串 ID 性能测试 (v0.4.0 变更)
+
+   - 验证 Job.ID 从 int64 改为 string
+   - 确保 ID 唯一性和性能
+   - 测试字符串 ID 处理效率
+
+4. **BulkJobsPerformance** - 批量作业性能测试
+
+   - 调度 1,000 个作业 (简化版)
+   - 单个工作器处理
    - 测量调度和处理时间
-   - 计算每秒处理作业数
 
-2. **LatencyPerformance** - 延迟性能测试
+5. **ParallelWorkerPerformance** - 并行工作器性能测试 (v0.4.0 对齐)
 
-   - 测量 1,000 个作业的端到端延迟
+   - **精确对应 v0.4.0 run.js**
+   - 20,000 个作业 (JOB_COUNT)
+   - 4 个并行工作器 (PARALLELISM)
+   - 10 个并发度 (CONCURRENCY)
+   - 查找目标作业 (id=999)
+
+6. **LatencyPerformance** - 延迟性能测试
+
+   - 测量 50 个作业的端到端延迟
    - 单个工作器精确测量
-   - 提供 P50, P95, P99 延迟统计
-   - 断言合理的性能期望
+   - 提供平均延迟统计
 
-3. **StartupShutdownPerformance** - 启动/关闭性能测试
+7. **StartupShutdownPerformance** - 启动/关闭性能测试
 
    - 测量工作器启动时间
    - 测量工作器关闭时间
    - 多次迭代平均值
-   - 验证启动/关闭效率
 
-4. **ConcurrencyPerformance** - 并发性能测试
-   - 测试不同并发级别(1, 2, 4, 8, 16)
-   - 比较并发处理效率
-   - 分析并发扩展性
+8. **MemoryPerformance** - 内存性能测试
+   - 测试内存使用效率
+   - 处理大量作业时的内存稳定性
 
 ## 🔧 技术实现
 

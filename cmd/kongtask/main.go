@@ -8,21 +8,25 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/william-yangbo/kongtask/internal/logger"
 	"github.com/william-yangbo/kongtask/internal/migrate"
-	"github.com/william-yangbo/kongtask/internal/worker"
+	"github.com/william-yangbo/kongtask/pkg/logger"
+	"github.com/william-yangbo/kongtask/pkg/worker"
 )
 
 var (
-	cfgFile     string
-	databaseURL string
-	schema      string
-	schemaOnly  bool
-	once        bool
+	cfgFile      string
+	databaseURL  string
+	schema       string
+	schemaOnly   bool
+	once         bool
+	jobs         int
+	maxPoolSize  int
+	pollInterval int
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -87,6 +91,34 @@ registered task handlers.`,
 	},
 }
 
+// runTaskListCmd represents the run-task-list command (matches TypeScript runTaskList)
+var runTaskListCmd = &cobra.Command{
+	Use:   "run-task-list",
+	Short: "Start a worker pool to continuously process jobs (equivalent to graphile-worker runTaskList)",
+	Long: `Start a worker pool to continuously process jobs. This is equivalent to graphile-worker's 
+runTaskList function. It starts multiple workers and runs continuously until terminated,
+making it suitable for long-running job processing services.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := runTaskListPool(); err != nil {
+			log.Fatalf("RunTaskList failed: %v", err)
+		}
+	},
+}
+
+// runTaskListOnceCmd represents the run-task-list-once command
+var runTaskListOnceCmd = &cobra.Command{
+	Use:   "run-task-list-once",
+	Short: "Run all available jobs once and exit (equivalent to graphile-worker runTaskListOnce)",
+	Long: `Run all available jobs once and exit. This is equivalent to graphile-worker's 
+runTaskListOnce function. It processes all currently available jobs and then exits,
+making it suitable for one-time job processing or scheduled runs.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := runTaskListOnce(); err != nil {
+			log.Fatalf("RunTaskListOnce failed: %v", err)
+		}
+	},
+}
+
 func init() {
 	cobra.OnInitialize(initConfig)
 
@@ -99,13 +131,27 @@ func init() {
 	rootCmd.Flags().BoolVar(&schemaOnly, "schema-only", false, "Just install (or update) the database schema, then exit")
 	rootCmd.Flags().BoolVar(&once, "once", false, "Run until there are no runnable jobs left, then exit")
 
+	// Worker configuration flags (matching graphile-worker CLI)
+	rootCmd.Flags().IntVarP(&jobs, "jobs", "j", worker.ConcurrentJobs, "number of jobs to run concurrently")
+	rootCmd.Flags().IntVarP(&maxPoolSize, "max-pool-size", "m", worker.DefaultMaxPoolSize, "maximum size of the PostgreSQL pool")
+	rootCmd.Flags().IntVar(&pollInterval, "poll-interval", int(worker.DefaultPollInterval.Milliseconds()), "how long to wait between polling for jobs in milliseconds (for jobs scheduled in the future/retries)")
+
+	// Add connection alias for compatibility with graphile-worker
+	rootCmd.PersistentFlags().StringVarP(&databaseURL, "connection", "c", "", "Database connection string (alias for --database-url)")
+
 	// Bind flags to viper
 	viper.BindPFlag("database_url", rootCmd.PersistentFlags().Lookup("database-url"))
+	viper.BindPFlag("connection", rootCmd.PersistentFlags().Lookup("connection"))
 	viper.BindPFlag("schema", rootCmd.PersistentFlags().Lookup("schema"))
+	viper.BindPFlag("jobs", rootCmd.Flags().Lookup("jobs"))
+	viper.BindPFlag("max_pool_size", rootCmd.Flags().Lookup("max-pool-size"))
+	viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("poll-interval"))
 
 	// Add subcommands
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(workerCmd)
+	rootCmd.AddCommand(runTaskListCmd)
+	rootCmd.AddCommand(runTaskListOnceCmd)
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -195,8 +241,40 @@ func runWorker() error {
 		schemaName = "graphile_worker"
 	}
 
-	// Create connection pool
-	pool, err := pgxpool.New(ctx, dbURL)
+	// Get CLI parameters or use defaults
+	concurrency := viper.GetInt("jobs")
+	if concurrency <= 0 {
+		concurrency = jobs
+		if concurrency <= 0 {
+			concurrency = worker.ConcurrentJobs
+		}
+	}
+
+	maxPool := viper.GetInt("max_pool_size")
+	if maxPool <= 0 {
+		maxPool = maxPoolSize
+		if maxPool <= 0 {
+			maxPool = worker.DefaultMaxPoolSize
+		}
+	}
+
+	pollIntervalMs := viper.GetInt("poll_interval")
+	if pollIntervalMs <= 0 {
+		pollIntervalMs = pollInterval
+		if pollIntervalMs <= 0 {
+			pollIntervalMs = int(worker.DefaultPollInterval.Milliseconds())
+		}
+	}
+	pollDuration := time.Duration(pollIntervalMs) * time.Millisecond
+
+	// Create connection pool with custom max size
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	poolConfig.MaxConns = int32(maxPool)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -207,9 +285,11 @@ func runWorker() error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Create worker with custom logger
+	// Create worker with custom configuration
 	customLogger := logger.NewLogger(logger.ConsoleLogFactory)
-	w := worker.NewWorker(pool, schemaName, worker.WithLogger(customLogger))
+	w := worker.NewWorker(pool, schemaName,
+		worker.WithLogger(customLogger),
+		worker.WithPollInterval(pollDuration))
 
 	// Register example task handler (v0.2.0 signature)
 	w.RegisterTask("example_task", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
@@ -217,7 +297,8 @@ func runWorker() error {
 		return nil
 	})
 
-	log.Printf("Starting worker with schema: %s", schemaName)
+	log.Printf("Starting worker with schema: %s, poll interval: %v, max pool size: %d",
+		schemaName, pollDuration, maxPool)
 
 	// Run worker
 	if err := w.Run(ctx); err != nil && err != context.Canceled {
@@ -244,8 +325,32 @@ func runWorkerOnce() error {
 		schemaName = "graphile_worker"
 	}
 
-	// Create connection pool
-	pool, err := pgxpool.New(ctx, dbURL)
+	// Get CLI parameters or use defaults
+	maxPool := viper.GetInt("max_pool_size")
+	if maxPool <= 0 {
+		maxPool = maxPoolSize
+		if maxPool <= 0 {
+			maxPool = worker.DefaultMaxPoolSize
+		}
+	}
+
+	pollIntervalMs := viper.GetInt("poll_interval")
+	if pollIntervalMs <= 0 {
+		pollIntervalMs = pollInterval
+		if pollIntervalMs <= 0 {
+			pollIntervalMs = int(worker.DefaultPollInterval.Milliseconds())
+		}
+	}
+	pollDuration := time.Duration(pollIntervalMs) * time.Millisecond
+
+	// Create connection pool with custom max size
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	poolConfig.MaxConns = int32(maxPool)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -256,9 +361,11 @@ func runWorkerOnce() error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Create worker with custom logger
+	// Create worker with custom configuration
 	customLogger := logger.NewLogger(logger.ConsoleLogFactory)
-	w := worker.NewWorker(pool, schemaName, worker.WithLogger(customLogger))
+	w := worker.NewWorker(pool, schemaName,
+		worker.WithLogger(customLogger),
+		worker.WithPollInterval(pollDuration))
 
 	// Register example task handler (v0.2.0 signature)
 	w.RegisterTask("example_task", func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
@@ -266,10 +373,177 @@ func runWorkerOnce() error {
 		return nil
 	})
 
-	log.Printf("Starting worker (once mode) with schema: %s", schemaName)
+	log.Printf("Starting worker (once mode) with schema: %s, poll interval: %v, max pool size: %d",
+		schemaName, pollDuration, maxPool)
 
 	// Run worker once - process all available jobs then exit
 	return w.RunOnce(ctx)
+}
+
+// runTaskListOnce runs all available jobs once using the new RunTaskListOnce API
+func runTaskListOnce() error {
+	ctx := context.Background()
+
+	dbURL := viper.GetString("database_url")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	}
+
+	schemaName := viper.GetString("schema")
+	if schemaName == "" {
+		schemaName = "graphile_worker"
+	}
+
+	// Get CLI parameters or use defaults
+	maxPool := viper.GetInt("max_pool_size")
+	if maxPool <= 0 {
+		maxPool = maxPoolSize
+		if maxPool <= 0 {
+			maxPool = worker.DefaultMaxPoolSize
+		}
+	}
+
+	// Create connection pool with custom max size
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	poolConfig.MaxConns = int32(maxPool)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create connection pool: %w", err)
+	}
+	defer pool.Close()
+
+	// Test connection
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Define task handlers (equivalent to graphile-worker TaskList)
+	tasks := map[string]worker.TaskHandler{
+		"example_task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			helpers.Logger.Info(fmt.Sprintf("Processing example task with payload: %s", string(payload)))
+			return nil
+		},
+		"test_task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			helpers.Logger.Info(fmt.Sprintf("Processing test task with payload: %s", string(payload)))
+			return nil
+		},
+	}
+
+	// Create options for RunTaskListOnce
+	options := worker.RunTaskListOnceOptions{
+		Schema: schemaName,
+		Logger: logger.NewLogger(logger.ConsoleLogFactory),
+	}
+
+	log.Printf("Starting RunTaskListOnce with schema: %s, max pool size: %d", schemaName, maxPool)
+
+	// Run all available jobs once and exit
+	return worker.RunTaskListOnce(ctx, tasks, pool, options)
+}
+
+// runTaskListPool runs a worker pool continuously (equivalent to graphile-worker runTaskList)
+func runTaskListPool() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dbURL := viper.GetString("database_url")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	}
+
+	schemaName := viper.GetString("schema")
+	if schemaName == "" {
+		schemaName = "graphile_worker"
+	}
+
+	// Get CLI parameters or use defaults
+	concurrency := viper.GetInt("jobs")
+	if concurrency <= 0 {
+		concurrency = jobs
+		if concurrency <= 0 {
+			concurrency = worker.ConcurrentJobs
+		}
+	}
+
+	maxPool := viper.GetInt("max_pool_size")
+	if maxPool <= 0 {
+		maxPool = maxPoolSize
+		if maxPool <= 0 {
+			maxPool = worker.DefaultMaxPoolSize
+		}
+	}
+
+	pollIntervalMs := viper.GetInt("poll_interval")
+	if pollIntervalMs <= 0 {
+		pollIntervalMs = pollInterval
+		if pollIntervalMs <= 0 {
+			pollIntervalMs = int(worker.DefaultPollInterval.Milliseconds())
+		}
+	}
+	pollDuration := time.Duration(pollIntervalMs) * time.Millisecond
+
+	// Create connection pool with custom max size
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	poolConfig.MaxConns = int32(maxPool)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create connection pool: %w", err)
+	}
+	defer pool.Close()
+
+	// Test connection
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Define task handlers (equivalent to graphile-worker TaskList)
+	tasks := map[string]worker.TaskHandler{
+		"example_task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			helpers.Logger.Info(fmt.Sprintf("Processing example task with payload: %s", string(payload)))
+			return nil
+		},
+		"test_task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			helpers.Logger.Info(fmt.Sprintf("Processing test task with payload: %s", string(payload)))
+			return nil
+		},
+	}
+
+	// Create options for worker pool with CLI parameters
+	options := worker.WorkerPoolOptions{
+		Concurrency:  concurrency,
+		Schema:       schemaName,
+		Logger:       logger.NewLogger(logger.ConsoleLogFactory),
+		PollInterval: pollDuration,
+	}
+
+	log.Printf("Starting worker pool with schema: %s, concurrency: %d, poll interval: %v, max pool size: %d",
+		schemaName, options.Concurrency, pollDuration, maxPool)
+
+	// Start worker pool with signal handling (mirrors TypeScript runTaskList exactly)
+	workerPool, err := worker.RunTaskListWithSignalHandling(ctx, tasks, pool, options)
+	if err != nil {
+		return fmt.Errorf("failed to start worker pool: %w", err)
+	}
+
+	// Wait for worker pool to complete (will run until signal received)
+	workerPool.Wait()
+
+	log.Println("Worker pool stopped gracefully")
+	return nil
 }
 
 func main() {

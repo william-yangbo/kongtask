@@ -6,19 +6,22 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/william-yangbo/kongtask/internal/logger"
+	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
-// Helpers provides utility functions for task handlers
-type Helpers struct {
+// JobHelpers provides utility functions for task handlers (renamed from Helpers in v0.4.0)
+type JobHelpers struct {
 	Logger       *logger.Logger
 	Job          *Job
 	WithPgClient func(ctx context.Context, fn func(pgx.Tx) error) error
 	Query        func(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
-	AddJob       func(ctx context.Context, taskIdentifier string, payload interface{}, options ...JobOptions) error
+	AddJob       func(ctx context.Context, taskIdentifier string, payload interface{}, spec ...TaskSpec) error
 }
 
-// JobOptions represents options for adding a job
+// Helpers is an alias for backward compatibility
+type Helpers = JobHelpers
+
+// JobOptions represents options for adding a job (deprecated: use TaskSpec in v0.4.0)
 type JobOptions struct {
 	QueueName   *string `json:"queue_name,omitempty"`
 	RunAt       *string `json:"run_at,omitempty"` // ISO 8601 timestamp
@@ -72,9 +75,9 @@ func (w *Worker) CreateHelpers(ctx context.Context, job *Job) *Helpers {
 		return conn.Query(ctx, sql, args...)
 	}
 
-	// AddJob helper
-	helpers.AddJob = func(ctx context.Context, taskIdentifier string, payload interface{}, options ...JobOptions) error {
-		return w.AddJobWithOptions(ctx, taskIdentifier, payload, options...)
+	// AddJob helper (v0.4.0: now uses TaskSpec)
+	helpers.AddJob = func(ctx context.Context, taskIdentifier string, payload interface{}, spec ...TaskSpec) error {
+		return w.AddJobWithTaskSpec(ctx, taskIdentifier, payload, spec...)
 	}
 
 	return helpers
@@ -119,6 +122,77 @@ func (w *Worker) AddJobWithOptions(ctx context.Context, taskIdentifier string, p
 
 		query := fmt.Sprintf("SELECT %s.add_job($1, $2, %s, %s, $3)", w.schema, queueName, runAt)
 		_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON), maxAttempts)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to add job: %w", err)
+	}
+
+	return nil
+}
+
+// AddJobWithTaskSpec adds a job with TaskSpec options (v0.4.0 compatible)
+func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, payload interface{}, specs ...TaskSpec) error {
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	conn, err := w.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	if len(specs) == 0 {
+		// Simple case - use the 2-parameter add_job function
+		query := fmt.Sprintf("SELECT %s.add_job($1, $2)", w.schema)
+		_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON))
+	} else {
+		// Complex case with TaskSpec - use the enhanced add_job function (v0.4.0 with job_key)
+		spec := specs[0]
+
+		// Build query based on available parameters
+		if spec.JobKey != nil {
+			// Use 6-parameter add_job with job_key (v0.4.0)
+			query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6)", w.schema)
+
+			queueName := ""
+			if spec.QueueName != nil {
+				queueName = *spec.QueueName
+			}
+
+			runAt := "now()"
+			if spec.RunAt != nil {
+				runAt = spec.RunAt.Format("2006-01-02T15:04:05Z07:00")
+			}
+
+			maxAttempts := 25
+			if spec.MaxAttempts != nil {
+				maxAttempts = *spec.MaxAttempts
+			}
+
+			_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON), queueName, runAt, maxAttempts, *spec.JobKey)
+		} else {
+			// Use 5-parameter add_job (legacy format)
+			queueName := "public.gen_random_uuid()::text"
+			if spec.QueueName != nil {
+				queueName = fmt.Sprintf("'%s'", *spec.QueueName)
+			}
+
+			runAt := "now()"
+			if spec.RunAt != nil {
+				runAt = fmt.Sprintf("'%s'::timestamptz", spec.RunAt.Format("2006-01-02T15:04:05Z07:00"))
+			}
+
+			maxAttempts := 25
+			if spec.MaxAttempts != nil {
+				maxAttempts = *spec.MaxAttempts
+			}
+
+			query := fmt.Sprintf("SELECT %s.add_job($1, $2, %s, %s, $3)", w.schema, queueName, runAt)
+			_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON), maxAttempts)
+		}
 	}
 
 	if err != nil {

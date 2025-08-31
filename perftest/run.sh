@@ -41,6 +41,11 @@ echo "4️⃣  Testing Bulk Jobs Performance (20,000 jobs)..."
 go test -v ./perftest -run TestBulkJobsPerformance -timeout 15m
 echo ""
 
+# Run parallel worker performance test (equivalent to v0.4.0 run.js)
+echo "5️⃣  Testing Parallel Worker Performance (4 workers, 20,000 jobs)..."
+go test -v ./perftest -run TestParallelWorkerPerformance -timeout 15m
+echo ""
+
 echo "🎉 All Performance Tests Completed!"
 echo ""
 echo "📊 Summary:"
@@ -48,5 +53,6 @@ echo "  - Startup/Shutdown: Worker lifecycle performance"
 echo "  - Latency Analysis: 1,000 jobs with detailed timing"
 echo "  - Concurrency Scaling: 1,2,4,8 worker comparison"
 echo "  - Bulk Processing: 20,000 jobs with 10 workers"
+echo "  - Parallel Workers: 4 workers matching v0.4.0 run.js"
 echo ""
 echo "✨ KongTask Performance Testing Complete!"

@@ -28,7 +28,17 @@ func StartPostgres(t testing.TB) (string, *pgxpool.Pool) {
 	}
 	t.Cleanup(func() { _ = pg.Terminate(ctx) })
 
-	dbURL, err := pg.ConnectionString(ctx, "sslmode=disable")
+	// Wait for the container to be fully ready with retry logic
+	var dbURL string
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		dbURL, err = pg.ConnectionString(ctx, "sslmode=disable")
+		if err == nil {
+			break
+		}
+		t.Logf("Waiting for container to be ready, got error: %v", err)
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("connection string: %v", err)
 	}
