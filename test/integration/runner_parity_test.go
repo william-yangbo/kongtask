@@ -28,7 +28,7 @@ func runOnceErrorAssertion(t *testing.T, options worker.RunnerOptions, expectedM
 func TestRunOnceValidationParity(t *testing.T) {
 	t.Run("requires task list or directory", func(t *testing.T) {
 		options := worker.RunnerOptions{}
-		runOnceErrorAssertion(t, options, "You must specify either `options.taskList` or `options.taskDirectory")
+		runOnceErrorAssertion(t, options, "you must specify either `options.taskList` or `options.taskDirectory")
 	})
 
 	t.Run("task list and directory are mutually exclusive", func(t *testing.T) {
@@ -36,14 +36,14 @@ func TestRunOnceValidationParity(t *testing.T) {
 			TaskDirectory: "foo",
 			TaskList:      map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
 		}
-		runOnceErrorAssertion(t, options, "Exactly one of either `taskDirectory` or `taskList` should be set")
+		runOnceErrorAssertion(t, options, "exactly one of either `taskDirectory` or `taskList` should be set")
 	})
 
 	t.Run("requires connection info", func(t *testing.T) {
 		options := worker.RunnerOptions{
 			TaskList: map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
 		}
-		runOnceErrorAssertion(t, options, "You must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
+		runOnceErrorAssertion(t, options, "you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
 	})
 
 	t.Run("connection string and pgPool are mutually exclusive", func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestRunOnceValidationParity(t *testing.T) {
 			ConnectionString: dbURL,
 			PgPool:           pool,
 		}
-		runOnceErrorAssertion(t, options, "Both `pgPool` and `connectionString` are set, at most one of these options should be provided")
+		runOnceErrorAssertion(t, options, "both `pgPool` and `connectionString` are set, at most one of these options should be provided")
 	})
 }
 
