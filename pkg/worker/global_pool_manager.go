@@ -22,6 +22,13 @@ var (
 	registeredSignalHandlers bool
 	shuttingDown             bool
 	signalHandlerLock        sync.Mutex
+
+	// Signal channel and cleanup for testing
+	globalSignalChan chan os.Signal
+	signalCleanup    func()
+
+	// Test mode flag to disable actual signal handling
+	testMode bool
 )
 
 // SIGNALS defines the signals to handle for graceful shutdown (mirrors TypeScript signals.ts)
@@ -44,6 +51,13 @@ func GetAllWorkerPools() []*WorkerPool {
 	return pools
 }
 
+// SetTestMode enables or disables test mode for signal handling
+func SetTestMode(enabled bool) {
+	signalHandlerLock.Lock()
+	defer signalHandlerLock.Unlock()
+	testMode = enabled
+}
+
 // registerSignalHandlers sets up global signal handlers (mirrors TypeScript registerSignalHandlers)
 func registerSignalHandlers(logger *logger.Logger) error {
 	signalHandlerLock.Lock()
@@ -57,13 +71,34 @@ func registerSignalHandlers(logger *logger.Logger) error {
 		return nil
 	}
 
+	// In test mode, just mark as registered but don't actually set up signal handlers
+	if testMode {
+		registeredSignalHandlers = true
+		logger.Debug("Signal handlers disabled in test mode")
+		return nil
+	}
+
 	registeredSignalHandlers = true
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, SIGNALS...)
+	globalSignalChan = make(chan os.Signal, 1)
+	signal.Notify(globalSignalChan, SIGNALS...)
+
+	// Store cleanup function
+	signalCleanup = func() {
+		signalHandlerLock.Lock()
+		defer signalHandlerLock.Unlock()
+
+		if globalSignalChan != nil {
+			signal.Stop(globalSignalChan)
+			close(globalSignalChan)
+			globalSignalChan = nil
+		}
+		registeredSignalHandlers = false
+		shuttingDown = false
+	}
 
 	go func() {
-		for sig := range sigChan {
+		for sig := range globalSignalChan {
 			logger.Error(fmt.Sprintf("Received '%v'; attempting graceful shutdown...", sig))
 
 			// Set shutdown flag
@@ -112,8 +147,9 @@ func registerSignalHandlers(logger *logger.Logger) error {
 			shutdownTimer.Stop()
 
 			// Unregister signal handlers
-			signal.Stop(sigChan)
-			close(sigChan)
+			if signalCleanup != nil {
+				signalCleanup()
+			}
 
 			logger.Error(fmt.Sprintf("Graceful shutdown attempted; killing self via %v", sig))
 
@@ -151,6 +187,22 @@ func removeWorkerPool(pool *WorkerPool) {
 			allWorkerPools = append(allWorkerPools[:i], allWorkerPools[i+1:]...)
 			break
 		}
+	}
+
+	// If no more worker pools, clean up signal handlers
+	if len(allWorkerPools) == 0 {
+		cleanupSignalHandlers()
+	}
+}
+
+// cleanupSignalHandlers cleans up global signal handlers when no worker pools remain
+func cleanupSignalHandlers() {
+	signalHandlerLock.Lock()
+	defer signalHandlerLock.Unlock()
+
+	if signalCleanup != nil {
+		signalCleanup()
+		signalCleanup = nil
 	}
 }
 

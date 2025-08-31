@@ -163,10 +163,12 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run Security Analysis
+      - name: Run Gosec Security Scanner
         run: |
-          echo "Security scan completed - using golangci-lint security checks"
-          echo "Note: gosec repository is currently unavailable"
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -no-fail -fmt sarif -out results.sarif ./...
 
-      - name: Security Analysis Complete
-        run: echo "Security analysis completed successfully"
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

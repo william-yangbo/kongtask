@@ -298,6 +298,10 @@ func TestRunTaskListDebugCompatibility(t *testing.T) {
 // TestRunTaskListWithSignalHandling tests the signal handling version
 // Note: This test focuses on basic functionality rather than actual signal testing
 func TestRunTaskListWithSignalHandling(t *testing.T) {
+	// Enable test mode to prevent actual signal handling
+	worker.SetTestMode(true)
+	defer worker.SetTestMode(false)
+
 	workerUtils, pool := setupRunTaskListTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
