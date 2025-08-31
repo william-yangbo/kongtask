@@ -39,7 +39,7 @@ func TestRunnerConfigValidation(t *testing.T) {
 		{
 			name: "database URL from environment",
 			setup: func() *RunnerOptions {
-				os.Setenv("DATABASE_URL", "postgres://localhost/test")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/test")
 				return &RunnerOptions{}
 			},
 			expectError: false,
@@ -97,9 +97,9 @@ func TestRunnerConfigValidation(t *testing.T) {
 			originalDBURL := os.Getenv("DATABASE_URL")
 			defer func() {
 				if originalDBURL != "" {
-					os.Setenv("DATABASE_URL", originalDBURL)
+					_ = os.Setenv("DATABASE_URL", originalDBURL)
 				} else {
-					os.Unsetenv("DATABASE_URL")
+					_ = os.Unsetenv("DATABASE_URL")
 				}
 			}()
 
@@ -128,7 +128,7 @@ func TestConfigFileHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }() // Ignore cleanup error
 
 	configFile := tmpDir + "/.kongtask.yaml"
 	configContent := `
@@ -169,17 +169,17 @@ func TestEnvironmentVariableHandling(t *testing.T) {
 	defer func() {
 		for key, value := range originalVars {
 			if value != "" {
-				os.Setenv(key, value)
+				_ = os.Setenv(key, value)
 			} else {
-				os.Unsetenv(key)
+				_ = os.Unsetenv(key)
 			}
 		}
 	}()
 
 	// Set environment variables
-	os.Setenv("DATABASE_URL", "postgres://env/test")
-	os.Setenv("KONGTASK_SCHEMA", "env_schema")
-	os.Setenv("KONGTASK_TIMEOUT", "45s")
+	_ = os.Setenv("DATABASE_URL", "postgres://env/test")
+	_ = os.Setenv("KONGTASK_SCHEMA", "env_schema")
+	_ = os.Setenv("KONGTASK_TIMEOUT", "45s")
 
 	viper.Reset()
 	viper.AutomaticEnv()
@@ -193,15 +193,15 @@ func TestEnvironmentVariableHandling(t *testing.T) {
 // TestCommandPrecedence tests flag vs environment vs config file precedence
 func TestCommandPrecedence(t *testing.T) {
 	// Setup environment
-	os.Setenv("DATABASE_URL", "postgres://env/test")
-	defer os.Unsetenv("DATABASE_URL")
+	_ = os.Setenv("DATABASE_URL", "postgres://env/test")
+	defer func() { _ = os.Unsetenv("DATABASE_URL") }()
 
 	// Create config file
 	tmpDir, err := os.MkdirTemp("", "kongtask-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }() // Ignore cleanup error
 
 	configFile := tmpDir + "/.kongtask.yaml"
 	configContent := `database_url: postgres://config/test`
@@ -243,7 +243,7 @@ func TestWorkerCommandValidation(t *testing.T) {
 			name: "missing database URL",
 			args: []string{"worker"},
 			setupEnv: func() {
-				os.Unsetenv("DATABASE_URL")
+				_ = os.Unsetenv("DATABASE_URL")
 			},
 			expectError: true,
 			errorMsg:    "database URL is required",
@@ -252,7 +252,7 @@ func TestWorkerCommandValidation(t *testing.T) {
 			name: "database URL from environment",
 			args: []string{"worker"},
 			setupEnv: func() {
-				os.Setenv("DATABASE_URL", "postgres://localhost/test")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/test")
 			},
 			expectError: false,
 		},
@@ -264,9 +264,9 @@ func TestWorkerCommandValidation(t *testing.T) {
 			originalDBURL := os.Getenv("DATABASE_URL")
 			defer func() {
 				if originalDBURL != "" {
-					os.Setenv("DATABASE_URL", originalDBURL)
+					_ = os.Setenv("DATABASE_URL", originalDBURL)
 				} else {
-					os.Unsetenv("DATABASE_URL")
+					_ = os.Unsetenv("DATABASE_URL")
 				}
 			}()
 

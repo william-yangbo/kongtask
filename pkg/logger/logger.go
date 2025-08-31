@@ -139,11 +139,11 @@ func ConsoleLogFactory(scope LogScope) LogFunction {
 			}
 		case LogLevelInfo:
 			logMethod = func(format string, args ...interface{}) {
-				fmt.Fprintf(os.Stdout, format+"\n", args...)
+				_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...)
 			}
 		default:
 			logMethod = func(format string, args ...interface{}) {
-				fmt.Fprintf(os.Stdout, format+"\n", args...)
+				_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...)
 			}
 		}
 

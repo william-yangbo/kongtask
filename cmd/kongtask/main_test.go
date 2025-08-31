@@ -14,9 +14,9 @@ func TestConfigValidation(t *testing.T) {
 	originalDBURL := os.Getenv("DATABASE_URL")
 	defer func() {
 		if originalDBURL != "" {
-			os.Setenv("DATABASE_URL", originalDBURL)
+			_ = os.Setenv("DATABASE_URL", originalDBURL)
 		} else {
-			os.Unsetenv("DATABASE_URL")
+			_ = os.Unsetenv("DATABASE_URL")
 		}
 	}()
 
@@ -29,7 +29,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "no database URL provided",
 			setup: func() {
-				os.Unsetenv("DATABASE_URL")
+				_ = os.Unsetenv("DATABASE_URL")
 				viper.Set("database_url", "")
 			},
 			expectError: true,
@@ -38,7 +38,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "database URL from flag",
 			setup: func() {
-				os.Unsetenv("DATABASE_URL")
+				_ = os.Unsetenv("DATABASE_URL")
 				viper.Set("database_url", "postgres://localhost/test")
 			},
 			expectError: false,
@@ -46,7 +46,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "database URL from environment",
 			setup: func() {
-				os.Setenv("DATABASE_URL", "postgres://localhost/test")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/test")
 				viper.Set("database_url", "")
 			},
 			expectError: false,
@@ -54,7 +54,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "flag overrides environment",
 			setup: func() {
-				os.Setenv("DATABASE_URL", "postgres://localhost/old")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/old")
 				viper.Set("database_url", "postgres://localhost/new")
 			},
 			expectError: false,
@@ -62,7 +62,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "default schema when not provided",
 			setup: func() {
-				os.Setenv("DATABASE_URL", "postgres://localhost/test")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/test")
 				viper.Set("database_url", "")
 				viper.Set("schema", "")
 			},
@@ -71,7 +71,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "custom schema provided",
 			setup: func() {
-				os.Setenv("DATABASE_URL", "postgres://localhost/test")
+				_ = os.Setenv("DATABASE_URL", "postgres://localhost/test")
 				viper.Set("database_url", "")
 				viper.Set("schema", "custom_worker")
 			},

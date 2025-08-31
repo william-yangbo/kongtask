@@ -73,12 +73,12 @@ func TestRunOnceConnectionParity(t *testing.T) {
 
 		// Set DATABASE_URL environment variable
 		originalURL := os.Getenv("DATABASE_URL")
-		os.Setenv("DATABASE_URL", dbURL)
+		_ = os.Setenv("DATABASE_URL", dbURL)
 		defer func() {
 			if originalURL == "" {
-				os.Unsetenv("DATABASE_URL")
+				_ = os.Unsetenv("DATABASE_URL")
 			} else {
-				os.Setenv("DATABASE_URL", originalURL)
+				_ = os.Setenv("DATABASE_URL", originalURL)
 			}
 		}()
 
