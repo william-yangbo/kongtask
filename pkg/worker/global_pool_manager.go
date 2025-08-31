@@ -120,7 +120,7 @@ func registerSignalHandlers(logger *logger.Logger) error {
 			// Kill self with the same signal
 			process, err := os.FindProcess(os.Getpid())
 			if err == nil {
-				process.Signal(sig)
+				_ = process.Signal(sig) // Signal error is not critical during shutdown
 			}
 			os.Exit(1)
 		}

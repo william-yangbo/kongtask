@@ -140,12 +140,12 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&databaseURL, "connection", "c", "", "Database connection string (alias for --database-url)")
 
 	// Bind flags to viper
-	viper.BindPFlag("database_url", rootCmd.PersistentFlags().Lookup("database-url"))
-	viper.BindPFlag("connection", rootCmd.PersistentFlags().Lookup("connection"))
-	viper.BindPFlag("schema", rootCmd.PersistentFlags().Lookup("schema"))
-	viper.BindPFlag("jobs", rootCmd.Flags().Lookup("jobs"))
-	viper.BindPFlag("max_pool_size", rootCmd.Flags().Lookup("max-pool-size"))
-	viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("poll-interval"))
+	_ = viper.BindPFlag("database_url", rootCmd.PersistentFlags().Lookup("database-url"))
+	_ = viper.BindPFlag("connection", rootCmd.PersistentFlags().Lookup("connection"))
+	_ = viper.BindPFlag("schema", rootCmd.PersistentFlags().Lookup("schema"))
+	_ = viper.BindPFlag("jobs", rootCmd.Flags().Lookup("jobs"))
+	_ = viper.BindPFlag("max_pool_size", rootCmd.Flags().Lookup("max-pool-size"))
+	_ = viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("poll-interval"))
 
 	// Add subcommands
 	rootCmd.AddCommand(migrateCmd)

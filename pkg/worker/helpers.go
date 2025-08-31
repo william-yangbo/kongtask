@@ -55,7 +55,7 @@ func (w *Worker) CreateHelpers(ctx context.Context, job *Job) *Helpers {
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }() // Ignore rollback error in defer
 
 		if err := fn(tx); err != nil {
 			return err

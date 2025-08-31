@@ -201,7 +201,7 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 
 			err = m.runMigration(ctx, tx, migration)
 			if err != nil {
-				tx.Rollback(ctx)
+				_ = tx.Rollback(ctx) // Rollback error is not critical here
 				return err
 			}
 

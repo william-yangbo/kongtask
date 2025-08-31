@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
 // WorkerUtils provides utilities for interacting with graphile-worker (v0.4.0 addition)
@@ -236,7 +236,7 @@ func QuickAddJobGlobal(ctx context.Context, options WorkerUtilsOptions, taskIden
 	if err != nil {
 		return "", err
 	}
-	defer utils.Release()
+	defer func() { _ = utils.Release() }() // Ignore release error
 
 	return utils.QuickAddJob(ctx, taskIdentifier, payload, spec...)
 }

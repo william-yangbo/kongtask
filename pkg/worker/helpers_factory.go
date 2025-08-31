@@ -119,7 +119,7 @@ func MakeWithPgClientFromPool(pgPool *pgxpool.Pool) WithPgClient {
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }() // Ignore rollback error in defer
 
 		if err := callback(tx); err != nil {
 			return err

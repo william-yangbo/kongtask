@@ -164,11 +164,11 @@ func TestCommandLineArgs(t *testing.T) {
 			testCmd.PersistentFlags().StringVar(&schema, "schema", "graphile_worker", "Schema name for worker tables")
 
 			// Bind flags to viper
-			viper.BindPFlag("database_url", testCmd.PersistentFlags().Lookup("database-url"))
-			viper.BindPFlag("schema", testCmd.PersistentFlags().Lookup("schema"))
+			_ = viper.BindPFlag("database_url", testCmd.PersistentFlags().Lookup("database-url"))
+			_ = viper.BindPFlag("schema", testCmd.PersistentFlags().Lookup("schema"))
 
 			// Parse the test arguments
-			testCmd.ParseFlags(tt.args)
+			_ = testCmd.ParseFlags(tt.args)
 
 			// Check that viper got the expected values
 			for key, expectedValue := range tt.expected {

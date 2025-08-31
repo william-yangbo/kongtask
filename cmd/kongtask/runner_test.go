@@ -212,7 +212,7 @@ func TestCommandPrecedence(t *testing.T) {
 	// Test that command line flag takes precedence
 	viper.Reset()
 	viper.SetConfigFile(configFile)
-	viper.ReadInConfig()
+	_ = viper.ReadInConfig() // Ignore error in test
 	viper.AutomaticEnv()
 
 	// Simulate command line flag (highest precedence)
@@ -282,12 +282,12 @@ func TestWorkerCommandValidation(t *testing.T) {
 			testCmd.PersistentFlags().StringVar(&databaseURL, "database-url", "", "PostgreSQL connection URL")
 			testCmd.PersistentFlags().StringVar(&schema, "schema", "graphile_worker", "Schema name for worker tables")
 
-			viper.BindPFlag("database_url", testCmd.PersistentFlags().Lookup("database-url"))
-			viper.BindPFlag("schema", testCmd.PersistentFlags().Lookup("schema"))
+			_ = viper.BindPFlag("database_url", testCmd.PersistentFlags().Lookup("database-url"))
+			_ = viper.BindPFlag("schema", testCmd.PersistentFlags().Lookup("schema"))
 			viper.AutomaticEnv()
 
 			// Parse flags
-			testCmd.ParseFlags(tt.args[1:]) // Skip the command name
+			_ = testCmd.ParseFlags(tt.args[1:]) // Skip the command name
 
 			// Validate worker configuration
 			err := validateWorkerConfig()
