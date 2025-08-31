@@ -83,10 +83,10 @@ func TestWorkerUtilsJobKeyParity(t *testing.T) {
 	_, err = utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 1}, spec)
 	require.NoError(t, err)
 
-	_, err = utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 2}, spec)
+	_, _ = utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 2}, spec)
 	// Second job with same key should be ignored/fail silently depending on implementation
 
-	_, err = utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 3}, spec)
+	_, _ = utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 3}, spec)
 	// Third job with same key should be ignored/fail silently depending on implementation
 
 	// Assert that only one job exists due to JobKey deduplication

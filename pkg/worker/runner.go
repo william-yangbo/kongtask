@@ -30,10 +30,10 @@ type RunnerOptions struct {
 func RunOnce(ctx context.Context, options RunnerOptions) error {
 	// Validate task configuration - exactly one of taskList or taskDirectory must be provided
 	if options.TaskList == nil && options.TaskDirectory == "" {
-		return fmt.Errorf("You must specify either `options.taskList` or `options.taskDirectory`")
+		return fmt.Errorf("you must specify either `options.taskList` or `options.taskDirectory`")
 	}
 	if options.TaskList != nil && options.TaskDirectory != "" {
-		return fmt.Errorf("Exactly one of either `taskDirectory` or `taskList` should be set")
+		return fmt.Errorf("exactly one of either `taskDirectory` or `taskList` should be set")
 	}
 
 	// Validate database connection - exactly one connection method must be provided
@@ -42,10 +42,10 @@ func RunOnce(ctx context.Context, options RunnerOptions) error {
 	hasDatabaseURL := os.Getenv("DATABASE_URL") != ""
 
 	if !hasConnectionString && !hasPgPool && !hasDatabaseURL {
-		return fmt.Errorf("You must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
+		return fmt.Errorf("you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
 	}
 	if hasConnectionString && hasPgPool {
-		return fmt.Errorf("Both `pgPool` and `connectionString` are set, at most one of these options should be provided")
+		return fmt.Errorf("both `pgPool` and `connectionString` are set, at most one of these options should be provided")
 	}
 
 	// Determine connection string

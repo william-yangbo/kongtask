@@ -77,7 +77,6 @@ func registerSignalHandlers(logger *logger.Logger) error {
 
 			// Start shutdown timer (5 seconds like TypeScript)
 			shutdownTimer := time.NewTimer(5 * time.Second)
-			defer shutdownTimer.Stop()
 
 			// Gracefully shutdown all worker pools
 			allWorkerPoolsLock.RLock()
@@ -108,6 +107,9 @@ func registerSignalHandlers(logger *logger.Logger) error {
 			case <-shutdownTimer.C:
 				logger.Error("Graceful shutdown timeout reached")
 			}
+
+			// Stop the timer after use
+			shutdownTimer.Stop()
 
 			// Unregister signal handlers
 			signal.Stop(sigChan)
