@@ -155,11 +155,47 @@ jobs:
           version: latest
           args: --timeout=10m
 
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    # Only run CodeQL on push events to enable code scanning
+    if: github.event_name == 'push'
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: 'codeql'
+
   security:
     name: Security
     runs-on: ubuntu-latest
     # Only run security scanning on push events, not PRs
     if: github.event_name == 'push'
+    # Run after CodeQL to ensure code scanning is enabled
+    needs: codeql
 
     steps:
       - name: Checkout code
