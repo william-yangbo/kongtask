@@ -54,8 +54,10 @@ func main() {
 
     // Create and run worker pool
     workerPool, err := worker.RunTaskList(ctx, tasks, pool, worker.WorkerPoolOptions{
-        Concurrency: 4,
-        Schema:      "graphile_worker",
+        Concurrency:     4,
+        Schema:          "graphile_worker",
+        // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc (v0.5.0 feature)
+        NoHandleSignals: false,
     })
     if err != nil {
         log.Fatal(err)
@@ -165,6 +167,7 @@ KongTask provides core API compatibility with graphile-worker v0.5.0:
 - ✅ **Database Schema**: Complete SQL migration alignment (000001-000004)
 - ✅ **Job Queue Operations**: add_job, get_job, complete_job, fail_job functions
 - ✅ **Admin Functions**: completeJobs, permanentlyFailJobs, rescheduleJobs (v0.4.0+ features)
+- ✅ **Signal Handling Control**: NoHandleSignals option for custom signal management (v0.5.0 feature)
 - ✅ **Task Scheduling**: Job scheduling, retry logic, and priority support
 - ✅ **Worker Management**: Worker pool management with graceful shutdown
 - ✅ **Performance**: Comparable throughput and latency characteristics
