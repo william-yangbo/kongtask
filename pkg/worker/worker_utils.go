@@ -53,7 +53,7 @@ func MakeWorkerUtils(ctx context.Context, options WorkerUtilsOptions) (*WorkerUt
 
 	schema := options.Schema
 	if schema == "" {
-		schema = "graphile_worker"
+		schema = getSchemaFromEnv()
 	}
 
 	if options.PgPool != nil {

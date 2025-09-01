@@ -2,7 +2,6 @@ package worker
 
 import (
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -22,7 +21,9 @@ const (
 	DefaultSchema = "graphile_worker"
 )
 
-// Type-safe configuration helper
+// Config represents the legacy configuration structure
+// NOTE: This is kept for backward compatibility with existing code
+// New code should use Configuration struct from config_parser.go
 type Config struct {
 	PollInterval        time.Duration
 	ConcurrentJobs      int
@@ -33,21 +34,9 @@ type Config struct {
 
 // DefaultConfig returns configuration with all default values
 // matching graphile-worker config.ts constants
-// Now supports loading from configuration file via LoadConfigurationWithOverrides
+// Delegates to the new cosmiconfig-like implementation
 func DefaultConfig() Config {
-	return Config{
-		PollInterval:        DefaultPollInterval, // 2 * time.Second (from worker.go)
-		ConcurrentJobs:      ConcurrentJobs,      // 1
-		MaxContiguousErrors: MaxContiguousErrors, // 10 (from worker.go)
-		MaxPoolSize:         DefaultMaxPoolSize,  // 10
-		Schema:              getSchemaFromEnv(),  // "graphile_worker" or from env
-	}
-}
-
-// LoadConfigWithPriority loads configuration with full priority support
-// Priority: CLI overrides > Environment variables > Config file > Defaults
-func LoadConfigWithPriority(cliOverrides map[string]interface{}) (*Configuration, error) {
-	return LoadConfigurationWithOverrides(cliOverrides)
+	return GetDefaultsConfig()
 }
 
 // getSchemaFromEnv returns the schema name from environment variable or default
@@ -71,24 +60,10 @@ func applyDefaultOptions(options *WorkerPoolOptions) {
 	if options.Concurrency == 0 {
 		options.Concurrency = ConcurrentJobs
 	}
-}
-
-// getEnvInt returns an integer from environment variable or default value
-func getEnvInt(key string, defaultValue int) int {
-	if val := os.Getenv(key); val != "" {
-		if intVal, err := strconv.Atoi(val); err == nil {
-			return intVal
-		}
+	if options.MaxPoolSize == 0 {
+		options.MaxPoolSize = DefaultMaxPoolSize
 	}
-	return defaultValue
-}
-
-// getEnvDuration returns a duration from environment variable or default value
-func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
-	if val := os.Getenv(key); val != "" {
-		if duration, err := time.ParseDuration(val); err == nil {
-			return duration
-		}
+	if options.MaxContiguousErrors == 0 {
+		options.MaxContiguousErrors = MaxContiguousErrors
 	}
-	return defaultValue
 }

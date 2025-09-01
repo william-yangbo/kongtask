@@ -14,11 +14,14 @@ import (
 
 // WorkerPoolOptions represents options for worker pool
 type WorkerPoolOptions struct {
-	Concurrency     int            // Number of concurrent workers
-	Schema          string         // Database schema (default: "graphile_worker")
-	PollInterval    time.Duration  // Polling interval (default: 1s)
-	Logger          *logger.Logger // Logger instance
-	NoHandleSignals bool           // If set true, we won't install signal handlers (v0.5.0 feature)
+	Concurrency         int            // Number of concurrent workers
+	Schema              string         // Database schema (default: "graphile_worker")
+	PollInterval        time.Duration  // Polling interval (default: 1s)
+	Logger              *logger.Logger // Logger instance
+	NoHandleSignals     bool           // If set true, we won't install signal handlers (v0.5.0 feature)
+	MaxPoolSize         int            // Maximum database connection pool size
+	MaxContiguousErrors int            // Maximum contiguous errors before worker stops
+	DatabaseURL         string         // Database connection URL
 }
 
 // generatePoolID generates a cryptographically secure random pool identifier

@@ -13,6 +13,12 @@ import (
 // MakeAddJob creates an AddJob function with the given WithPgClient function
 // This mirrors the TypeScript makeAddJob function exactly
 func MakeAddJob(withPgClient WithPgClient) AddJobFunction {
+	return MakeAddJobWithOptions(nil, withPgClient)
+}
+
+// MakeAddJobWithOptions creates an AddJob function with options and WithPgClient function
+// This mirrors the TypeScript makeAddJob function exactly with schema support
+func MakeAddJobWithOptions(options *SharedOptions, withPgClient WithPgClient) AddJobFunction {
 	return func(ctx context.Context, identifier string, payload interface{}, specs ...TaskSpec) error {
 		var spec TaskSpec
 		if len(specs) > 0 {
@@ -25,21 +31,30 @@ func MakeAddJob(withPgClient WithPgClient) AddJobFunction {
 				return fmt.Errorf("failed to marshal payload: %w", err)
 			}
 
-			// Use the same SQL query as TypeScript version
-			query := `
-				SELECT * FROM graphile_worker.add_job(
+			// Get escaped schema name (default to "graphile_worker")
+			schema := "graphile_worker"
+			if options != nil && options.Schema != nil {
+				schema = *options.Schema
+			}
+			// Simple identifier escaping (Go equivalent of Client.prototype.escapeIdentifier)
+			escapedSchema := `"` + schema + `"`
+
+			// Use the exact same SQL query as TypeScript version with 7 parameters (including priority)
+			query := fmt.Sprintf(`
+				SELECT * FROM %s.add_job(
 					identifier => $1::text,
 					payload => $2::json,
-					queue_name => coalesce($3::text, public.gen_random_uuid()::text),
-					run_at => coalesce($4::timestamptz, now()),
-					max_attempts => coalesce($5::int, 25),
-					job_key => $6::text
+					queue_name => $3::text,
+					run_at => $4::timestamptz,
+					max_attempts => $5::int,
+					job_key => $6::text,
+					priority => $7::int
 				)
-			`
+			`, escapedSchema)
 
 			// Prepare parameters exactly like TypeScript
 			var queueName, runAtStr, jobKey *string
-			var maxAttempts *int
+			var maxAttempts, priority *int
 
 			if spec.QueueName != nil {
 				queueName = spec.QueueName
@@ -57,7 +72,11 @@ func MakeAddJob(withPgClient WithPgClient) AddJobFunction {
 				jobKey = spec.JobKey
 			}
 
-			_, err = tx.Exec(ctx, query, identifier, string(payloadJSON), queueName, runAtStr, maxAttempts, jobKey)
+			if spec.Priority != nil {
+				priority = spec.Priority
+			}
+
+			_, err = tx.Exec(ctx, query, identifier, string(payloadJSON), queueName, runAtStr, maxAttempts, jobKey, priority)
 			return err
 		})
 	}
@@ -65,7 +84,18 @@ func MakeAddJob(withPgClient WithPgClient) AddJobFunction {
 
 // MakeJobHelpers creates a JobHelpers instance for a job
 // This mirrors the TypeScript makeJobHelpers function exactly
-func MakeJobHelpers(job *Job, withPgClient WithPgClient, baseLogger *logger.Logger) *JobHelpers {
+func MakeJobHelpers(options *SharedOptions, job *Job, withPgClient WithPgClient, overrideLogger *logger.Logger) *JobHelpers {
+	// Use override logger or get from processSharedOptions like TypeScript
+	var baseLogger *logger.Logger
+	if overrideLogger != nil {
+		baseLogger = overrideLogger
+	} else if options != nil && options.Logger != nil {
+		baseLogger = options.Logger
+	} else {
+		// Default logger similar to processSharedOptions behavior
+		baseLogger = logger.NewLogger(nil)
+	}
+
 	// Create scoped logger exactly like TypeScript
 	jobLogger := baseLogger.Scope(logger.LogScope{
 		Label:          "job",
@@ -79,7 +109,7 @@ func MakeJobHelpers(job *Job, withPgClient WithPgClient, baseLogger *logger.Logg
 		WithPgClient: withPgClient,
 	}
 
-	// Query helper - mirrors TypeScript query function
+	// Query helper - mirrors TypeScript query function exactly
 	helpers.Query = func(ctx context.Context, queryText string, args ...interface{}) (pgx.Rows, error) {
 		var rows pgx.Rows
 		var err error
@@ -95,11 +125,14 @@ func MakeJobHelpers(job *Job, withPgClient WithPgClient, baseLogger *logger.Logg
 		return rows, err
 	}
 
-	// AddJob helper using MakeAddJob
-	helpers.AddJob = MakeAddJob(withPgClient)
+	// AddJob helper using MakeAddJob - mirrors TypeScript exactly
+	helpers.AddJob = MakeAddJobWithOptions(options, withPgClient)
 
-	// TODO: Add deprecated debug method warning like TypeScript
-	// This would require extending the JobHelpers struct or using reflection
+	// DEPRECATED debug method that mirrors TypeScript Object.assign(helpers, { debug(...) })
+	helpers.Debug = func(format string, parameters ...interface{}) {
+		helpers.Logger.Error("REMOVED: `helpers.Debug` has been replaced with `helpers.Logger.Debug`; please do not use `helpers.Debug`")
+		helpers.Logger.Debug(format, map[string]interface{}{"parameters": parameters})
+	}
 
 	return helpers
 }

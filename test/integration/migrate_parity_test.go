@@ -13,6 +13,7 @@ import (
 )
 
 // TestMigrate_InstallSchema_SecondMigrationDoesNoHarm corresponds to migrate.test.ts main test case
+// Matches TypeScript test: "migration installs schema; second migration does no harm"
 func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 	dbURL, pool := testutil.StartPostgres(t)
 	_ = dbURL // Keep for potential future use
@@ -20,60 +21,65 @@ func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 
 	migrator := migrate.NewMigrator(pool, "graphile_worker")
 
-	// Ensure database initial state is empty
+	// Ensure database initial state is empty (matching TypeScript)
 	conn, err := pool.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
 
-	// Drop schema if exists
+	// Drop schema if exists (matching TypeScript withPgClient fresh connection logic)
 	_, err = conn.Exec(ctx, "DROP SCHEMA IF EXISTS graphile_worker CASCADE")
 	require.NoError(t, err)
 
-	// Verify graphile_worker schema doesn't exist
-	var schemaExists bool
-	err = conn.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1)",
-		"graphile_worker",
-	).Scan(&schemaExists)
+	// We need to release and re-acquire connection after dropping schema
+	// because SQL functions' plans get cached using stale OIDs (matching TypeScript comment)
+	conn.Release()
+	conn, err = pool.Acquire(ctx)
 	require.NoError(t, err)
-	assert.False(t, schemaExists, "Schema should not exist before migration")
+	defer conn.Release()
 
-	// Perform migration
+	// Assert DB is empty (matching TypeScript verification)
+	var graphileWorkerNamespaceBefore interface{}
+	err = conn.QueryRow(ctx,
+		"SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = $1",
+		"graphile_worker",
+	).Scan(&graphileWorkerNamespaceBefore)
+
+	// Should get no rows error (equivalent to TypeScript falsy check)
+	require.Error(t, err, "Should get no rows when schema doesn't exist")
+	require.Contains(t, err.Error(), "no rows", "Should be no rows error")
+
+	// Perform migration (matching TypeScript)
 	err = migrator.Migrate(ctx)
 	require.NoError(t, err)
 
-	// Verify migrations table exists and has correct records (commit 27dee4d has 4 migrations: 000001, 000002, 000003, 000004)
+	// Assert migrations table exists and has relevant entries (matching TypeScript)
 	var migrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&migrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 4, migrationCount, "Should have exactly four migration records (000001, 000002, 000003, 000004)")
+	assert.Equal(t, 4, migrationCount, "Should have exactly 4 migration records (matching TypeScript)")
 
-	var maxMigrationID int
-	err = conn.QueryRow(ctx, "SELECT MAX(id) FROM graphile_worker.migrations").Scan(&maxMigrationID)
-	require.NoError(t, err)
-	assert.Equal(t, 4, maxMigrationID, "Latest migration ID should be 4 (includes commit 27dee4d admin functions)")
-
-	// Verify first migration ID is 1 (parity with migrate.test.ts)
+	// Verify first migration ID is 1 (matching TypeScript exact verification)
 	var firstMigrationID int
-	err = conn.QueryRow(ctx, "SELECT MIN(id) FROM graphile_worker.migrations").Scan(&firstMigrationID)
+	err = conn.QueryRow(ctx, "SELECT id FROM graphile_worker.migrations ORDER BY id ASC LIMIT 1").Scan(&firstMigrationID)
 	require.NoError(t, err)
-	assert.Equal(t, 1, firstMigrationID, "First migration ID should be 1")
+	assert.Equal(t, 1, firstMigrationID, "First migration ID should be 1 (matching TypeScript)")
 
-	// Verify job functions work properly
+	// Assert job schema files have been created (matching TypeScript add_job test)
 	_, err = conn.Exec(ctx, "SELECT graphile_worker.add_job('assert_jobs_work')")
-	require.NoError(t, err)
+	require.NoError(t, err, "add_job function should work after migration")
 
+	// Verify job was created correctly (matching TypeScript verification)
 	var jobCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.jobs").Scan(&jobCount)
 	require.NoError(t, err)
-	assert.Equal(t, 1, jobCount, "Should have one job")
+	assert.Equal(t, 1, jobCount, "Should have exactly 1 job (matching TypeScript)")
 
 	var taskIdentifier string
 	err = conn.QueryRow(ctx, "SELECT task_identifier FROM graphile_worker.jobs LIMIT 1").Scan(&taskIdentifier)
 	require.NoError(t, err)
-	assert.Equal(t, "assert_jobs_work", taskIdentifier)
+	assert.Equal(t, "assert_jobs_work", taskIdentifier, "Task identifier should match (matching TypeScript)")
 
-	// Verify repeated migrations cause no issues
+	// Assert that re-migrating causes no issues (matching TypeScript exactly)
 	err = migrator.Migrate(ctx)
 	require.NoError(t, err)
 
@@ -83,35 +89,60 @@ func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 	err = migrator.Migrate(ctx)
 	require.NoError(t, err)
 
-	// Ensure job count remains the same
+	// Verify job count remains the same after multiple migrations (matching TypeScript)
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.jobs").Scan(&jobCount)
 	require.NoError(t, err)
-	assert.Equal(t, 1, jobCount, "Job count should remain the same after repeated migrations")
+	assert.Equal(t, 1, jobCount, "Job count should remain 1 after repeated migrations (matching TypeScript)")
+
+	var finalTaskIdentifier string
+	err = conn.QueryRow(ctx, "SELECT task_identifier FROM graphile_worker.jobs LIMIT 1").Scan(&finalTaskIdentifier)
+	require.NoError(t, err)
+	assert.Equal(t, "assert_jobs_work", finalTaskIdentifier, "Task identifier should remain the same (matching TypeScript)")
 }
 
+// TestMigrate_WithExistingSchema tests idempotent behavior with existing schema
+// (Additional test to ensure comprehensive migrate functionality coverage)
 func TestMigrate_WithExistingSchema(t *testing.T) {
-	// Test behavior with existing schema
 	dbURL, pool := testutil.StartPostgres(t)
 	_ = dbURL
 	ctx := context.Background()
 
 	migrator := migrate.NewMigrator(pool, "graphile_worker")
 
-	// First migration
+	// First migration (should install schema)
 	err := migrator.Migrate(ctx)
 	require.NoError(t, err)
 
-	// Second migration should have no side effects
-	err = migrator.Migrate(ctx)
-	require.NoError(t, err)
-
-	// Verify only four migration records exist (commit 27dee4d: 000001, 000002, 000003, 000004)
+	// Verify initial state after first migration
 	conn, err := pool.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
 
-	var migrationCount int
-	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&migrationCount)
+	var initialMigrationCount int
+	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&initialMigrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 4, migrationCount, "Should have four migration records for commit 27dee4d")
+	assert.Equal(t, 4, initialMigrationCount, "Should have 4 migration records after first migration")
+
+	// Second migration should have no side effects (matching TypeScript idempotent behavior)
+	err = migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	// Third migration should also have no side effects
+	err = migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	// Verify migration count remains unchanged (idempotent behavior)
+	var finalMigrationCount int
+	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&finalMigrationCount)
+	require.NoError(t, err)
+	assert.Equal(t, 4, finalMigrationCount, "Migration count should remain 4 after repeated migrations")
+
+	// Verify schema functionality remains intact
+	_, err = conn.Exec(ctx, "SELECT graphile_worker.add_job('idempotent_test')")
+	require.NoError(t, err, "add_job function should still work after repeated migrations")
+
+	var jobCount int
+	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.jobs").Scan(&jobCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, jobCount, "Should have exactly 1 job after testing")
 }

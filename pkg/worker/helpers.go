@@ -17,6 +17,8 @@ type JobHelpers struct {
 	WithPgClient func(ctx context.Context, fn func(pgx.Tx) error) error
 	Query        func(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	AddJob       func(ctx context.Context, taskIdentifier string, payload interface{}, spec ...TaskSpec) error
+	// Debug is a deprecated method that mirrors TypeScript's deprecated debug functionality
+	Debug func(format string, parameters ...interface{})
 }
 
 // Helpers is an alias for backward compatibility
@@ -79,6 +81,12 @@ func (w *Worker) CreateHelpers(ctx context.Context, job *Job) *Helpers {
 	// AddJob helper (v0.4.0: now uses TaskSpec)
 	helpers.AddJob = func(ctx context.Context, taskIdentifier string, payload interface{}, spec ...TaskSpec) error {
 		return w.AddJobWithTaskSpec(ctx, taskIdentifier, payload, spec...)
+	}
+
+	// DEPRECATED debug method that mirrors TypeScript functionality
+	helpers.Debug = func(format string, parameters ...interface{}) {
+		helpers.Logger.Error("REMOVED: `helpers.Debug` has been replaced with `helpers.Logger.Debug`; please do not use `helpers.Debug`")
+		helpers.Logger.Debug(format, map[string]interface{}{"parameters": parameters})
 	}
 
 	return helpers

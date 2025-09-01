@@ -96,6 +96,7 @@ func mustGetJobByID(t *testing.T, pool *pgxpool.Pool, jobID string) *worker.Job 
 }
 
 // TestCompleteJobs tests the completeJobs admin function (commit 27dee4d)
+// Matches TypeScript test: completes the jobs, leaves others unaffected
 func TestCompleteJobs(t *testing.T) {
 	_, pool := testutil.StartPostgres(t)
 	ctx := context.Background()
@@ -108,9 +109,9 @@ func TestCompleteJobs(t *testing.T) {
 
 	utils := worker.NewWorkerUtils(pool, "graphile_worker")
 
-	failedJob, regularJob1, lockedJob, regularJob2, _ := makeSelectionOfJobs(t, utils, pool)
+	failedJob, regularJob1, lockedJob, regularJob2, untouchedJob := makeSelectionOfJobs(t, utils, pool)
 
-	// Complete some jobs
+	// Complete some jobs (like TypeScript version)
 	jobs := []string{failedJob.ID, regularJob1.ID, lockedJob.ID, regularJob2.ID}
 	completedJobs, err := utils.CompleteJobs(ctx, jobs)
 	require.NoError(t, err)
@@ -118,19 +119,37 @@ func TestCompleteJobs(t *testing.T) {
 	// Should complete failed, regularJob1, and regularJob2 (but not locked job)
 	assert.Len(t, completedJobs, 3, "Should complete 3 jobs (excluding locked job)")
 
+	// Extract and sort completed job IDs for verification (matching TypeScript logic)
 	completedIDs := make([]string, len(completedJobs))
 	for i, job := range completedJobs {
 		completedIDs[i] = job.ID
 	}
 
-	assert.Contains(t, completedIDs, failedJob.ID)
-	assert.Contains(t, completedIDs, regularJob1.ID)
-	assert.Contains(t, completedIDs, regularJob2.ID)
-	assert.NotContains(t, completedIDs, lockedJob.ID)
+	// Verify expected jobs were completed (matching TypeScript expectations)
+	expectedCompletedIDs := []string{failedJob.ID, regularJob1.ID, regularJob2.ID}
+	assert.ElementsMatch(t, completedIDs, expectedCompletedIDs, "Should complete exactly these jobs")
 
-	// Verify remaining jobs in database
-	remainingCount := testutil.JobCount(t, pool, "graphile_worker")
-	assert.Equal(t, 2, remainingCount, "Should have 2 jobs remaining (locked + untouched)")
+	// Verify remaining jobs in database (matching TypeScript verification)
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, "SELECT id FROM graphile_worker.jobs ORDER BY id ASC")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var remainingIDs []string
+	for rows.Next() {
+		var id string
+		err := rows.Scan(&id)
+		require.NoError(t, err)
+		remainingIDs = append(remainingIDs, id)
+	}
+
+	// Should have exactly 2 jobs remaining: locked job and untouched job
+	assert.Len(t, remainingIDs, 2, "Should have 2 jobs remaining (locked + untouched)")
+	expectedRemainingIDs := []string{lockedJob.ID, untouchedJob.ID}
+	assert.ElementsMatch(t, remainingIDs, expectedRemainingIDs, "Should have locked and untouched jobs remaining")
 }
 
 // TestPermanentlyFailJobs tests the permanentlyFailJobs admin function (commit 27dee4d)
@@ -157,6 +176,14 @@ func TestPermanentlyFailJobs(t *testing.T) {
 	// Should fail failed, regularJob1, and regularJob2 (but not locked job)
 	assert.Len(t, failedJobs, 3, "Should fail 3 jobs (excluding locked job)")
 
+	// Verify specific jobs were failed (exact ID matching like TypeScript test)
+	expectedFailedIDs := []string{failedJob.ID, regularJob1.ID, regularJob2.ID}
+	actualFailedIDs := make([]string, len(failedJobs))
+	for i, job := range failedJobs {
+		actualFailedIDs[i] = job.ID
+	}
+	assert.ElementsMatch(t, expectedFailedIDs, actualFailedIDs, "Should fail exactly the expected jobs")
+
 	for _, job := range failedJobs {
 		assert.NotNil(t, job.LastError)
 		assert.Equal(t, reason, *job.LastError)
@@ -167,6 +194,11 @@ func TestPermanentlyFailJobs(t *testing.T) {
 	// Verify all jobs still exist but are failed
 	totalCount := testutil.JobCount(t, pool, "graphile_worker")
 	assert.Equal(t, 5, totalCount, "Should still have all 5 jobs")
+
+	// Verify locked job is unmodified (like TypeScript test)
+	lockedJobAfter := mustGetJobByID(t, pool, lockedJob.ID)
+	assert.Equal(t, lockedJob.AttemptCount, lockedJobAfter.AttemptCount)
+	assert.Equal(t, lockedJob.LastError, lockedJobAfter.LastError)
 
 	// Verify untouched job is unmodified
 	untouchedJobAfter := mustGetJobByID(t, pool, untouchedJob.ID)
