@@ -18,12 +18,18 @@ import (
 func TestCustomSchema(t *testing.T) {
 	// Set custom schema environment variable (equivalent to CI altschema job)
 	originalSchema := os.Getenv("GRAPHILE_WORKER_SCHEMA")
-	os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_schema")
+	if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_schema"); err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if originalSchema != "" {
-			os.Setenv("GRAPHILE_WORKER_SCHEMA", originalSchema)
+			if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", originalSchema); err != nil {
+				t.Errorf("Failed to restore environment variable: %v", err)
+			}
 		} else {
-			os.Unsetenv("GRAPHILE_WORKER_SCHEMA")
+			if err := os.Unsetenv("GRAPHILE_WORKER_SCHEMA"); err != nil {
+				t.Errorf("Failed to unset environment variable: %v", err)
+			}
 		}
 	}()
 
@@ -256,12 +262,18 @@ func TestSchemaConfigurationPriority(t *testing.T) {
 
 	// Set environment variable
 	originalSchema := os.Getenv("GRAPHILE_WORKER_SCHEMA")
-	os.Setenv("GRAPHILE_WORKER_SCHEMA", "env_schema")
+	if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", "env_schema"); err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if originalSchema != "" {
-			os.Setenv("GRAPHILE_WORKER_SCHEMA", originalSchema)
+			if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", originalSchema); err != nil {
+				t.Errorf("Failed to restore environment variable: %v", err)
+			}
 		} else {
-			os.Unsetenv("GRAPHILE_WORKER_SCHEMA")
+			if err := os.Unsetenv("GRAPHILE_WORKER_SCHEMA"); err != nil {
+				t.Errorf("Failed to unset environment variable: %v", err)
+			}
 		}
 	}()
 
