@@ -153,7 +153,7 @@ func TestRunTaskListJobExecutionAndCleanExit(t *testing.T) {
 	}
 
 	// Start the worker pool
-	workerPool, err := worker.RunTaskList(ctx, tasks, pool, options)
+	workerPool, err := worker.RunTaskList(ctx, options, tasks, pool)
 	require.NoError(t, err)
 
 	// Track if worker pool has finished
@@ -270,7 +270,7 @@ func TestRunTaskListDebugCompatibility(t *testing.T) {
 	}
 
 	// Start the worker pool
-	workerPool, err := worker.RunTaskList(ctx, tasks, pool, options)
+	workerPool, err := worker.RunTaskList(ctx, options, tasks, pool)
 	require.NoError(t, err)
 
 	// Add a job
@@ -329,7 +329,7 @@ func TestRunTaskListWithSignalHandling(t *testing.T) {
 	}
 
 	// Start worker pool with signal handling
-	managedPool, err := worker.RunTaskListWithSignalHandling(ctx, tasks, pool, options)
+	managedPool, err := worker.RunTaskListWithSignalHandling(ctx, options, tasks, pool)
 	require.NoError(t, err)
 
 	// Add a job
