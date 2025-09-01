@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/william-yangbo/kongtask/pkg/logger"
@@ -149,50 +150,41 @@ func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, 
 		query := fmt.Sprintf("SELECT %s.add_job($1, $2)", w.schema)
 		_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON))
 	} else {
-		// Complex case with TaskSpec - use the enhanced add_job function (v0.4.0 with job_key)
+		// Complex case with TaskSpec - use the 7-parameter add_job with priority (commit 27dee4d)
 		spec := specs[0]
 
-		// Build query based on available parameters
-		if spec.JobKey != nil {
-			// Use 6-parameter add_job with job_key (v0.4.0)
-			query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6)", w.schema)
-
-			queueName := ""
-			if spec.QueueName != nil {
-				queueName = *spec.QueueName
-			}
-
-			runAt := "now()"
-			if spec.RunAt != nil {
-				runAt = spec.RunAt.Format("2006-01-02T15:04:05Z07:00")
-			}
-
-			maxAttempts := 25
-			if spec.MaxAttempts != nil {
-				maxAttempts = *spec.MaxAttempts
-			}
-
-			_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON), queueName, runAt, maxAttempts, *spec.JobKey)
-		} else {
-			// Use 5-parameter add_job (legacy format)
-			queueName := "public.gen_random_uuid()::text"
-			if spec.QueueName != nil {
-				queueName = fmt.Sprintf("'%s'", *spec.QueueName)
-			}
-
-			runAt := "now()"
-			if spec.RunAt != nil {
-				runAt = fmt.Sprintf("'%s'::timestamptz", spec.RunAt.Format("2006-01-02T15:04:05Z07:00"))
-			}
-
-			maxAttempts := 25
-			if spec.MaxAttempts != nil {
-				maxAttempts = *spec.MaxAttempts
-			}
-
-			query := fmt.Sprintf("SELECT %s.add_job($1, $2, %s, %s, $3)", w.schema, queueName, runAt)
-			_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON), maxAttempts)
+		// Set default values as per graphile-worker
+		var queueName *string
+		if spec.QueueName != nil {
+			queueName = spec.QueueName
 		}
+
+		var runAt *time.Time
+		if spec.RunAt != nil {
+			runAt = spec.RunAt
+		}
+
+		var maxAttempts *int
+		if spec.MaxAttempts != nil {
+			maxAttempts = spec.MaxAttempts
+		}
+
+		var priority *int
+		if spec.Priority != nil {
+			priority = spec.Priority
+		}
+
+		// Use 7-parameter add_job function (commit 27dee4d format)
+		query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6, $7)", w.schema)
+		_, err = conn.Exec(ctx, query,
+			taskIdentifier,      // identifier
+			string(payloadJSON), // payload
+			queueName,           // queue_name
+			runAt,               // run_at
+			maxAttempts,         // max_attempts
+			spec.JobKey,         // job_key
+			priority,            // priority
+		)
 	}
 
 	if err != nil {

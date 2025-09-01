@@ -1,14 +1,16 @@
 # KongTask
 
-KongTask is a high-performance job queue implementation for Go, inspired by [graphile-worker](https://github.com/graphile/worker). It provides PostgreSQL-backed job processing with excellent performance and reliability.
+KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.5.0. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
+
+> **Compatibility Status**: Core features aligned with graphile-worker v0.5.0. Some TypeScript-specific features are not supported (see limitations below).
 
 ## Features
 
 - 🚀 **High Performance**: Process 1,700+ jobs per second
 - 🔒 **Reliable**: PostgreSQL-backed job persistence and ACID guarantees
-- 🎯 **Compatible**: API compatibility with graphile-worker v0.4.0+
+- 🎯 **Compatible**: Core API compatibility with graphile-worker v0.5.0 (see limitations below)
 - 🔧 **Flexible**: Support for job scheduling, retries, and custom task handlers
-- 🛡️ **Secure**: Cryptographically secure worker ID generation (v0.5.0+ improvement)
+- 🛡️ **Secure**: Cryptographically secure worker ID generation
 - 📊 **Observable**: Comprehensive logging and metrics support
 
 ## Quick Start
@@ -156,13 +158,37 @@ KongTask is built with several key components:
 
 ## Compatibility
 
-KongTask maintains API compatibility with graphile-worker:
+KongTask provides core API compatibility with graphile-worker v0.5.0:
 
-- ✅ Job queue operations (add_job, get_job, complete_job, fail_job)
-- ✅ Task scheduling and retry logic
-- ✅ Database schema compatibility
-- ✅ Worker pool management
-- ✅ Performance characteristics
+### ✅ **Supported Features**
+
+- ✅ **Database Schema**: Complete SQL migration alignment (000001-000004)
+- ✅ **Job Queue Operations**: add_job, get_job, complete_job, fail_job functions
+- ✅ **Admin Functions**: completeJobs, permanentlyFailJobs, rescheduleJobs (v0.4.0+ features)
+- ✅ **Task Scheduling**: Job scheduling, retry logic, and priority support
+- ✅ **Worker Management**: Worker pool management with graceful shutdown
+- ✅ **Performance**: Comparable throughput and latency characteristics
+- ✅ **API Surface**: WorkerUtils, TaskSpec, and helper function compatibility
+
+### ❌ **Known Limitations**
+
+- ❌ **Dynamic Task Loading**: TypeScript's dynamic task loading from directories/modules is not supported
+- ❌ **Runtime Task Registration**: Go's static typing requires tasks to be registered at compile time
+- ❌ **Module System Integration**: No equivalent to TypeScript's import/require for task discovery
+
+### 🔧 **Go-Specific Approach**
+
+Instead of dynamic loading, KongTask uses static task registration:
+
+```go
+// Define tasks at compile time
+tasks := map[string]worker.TaskHandler{
+    "send_email": emailHandler,
+    "process_payment": paymentHandler,
+}
+```
+
+**Development Status**: Core job queue functionality fully compatible with graphile-worker v0.5.0. Language-specific features (like dynamic task loading) are implemented using Go patterns rather than direct TypeScript equivalents.
 
 ## Contributing
 
@@ -184,4 +210,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Inspired by [graphile-worker](https://github.com/graphile/worker)
 - Built with [pgx](https://github.com/jackc/pgx) for PostgreSQL connectivity
 - Thanks to the Go community for excellent tooling and libraries
-🔒 **Security**: GitHub Advanced Security enabled with CodeQL + gosec scanning
+  🔒 **Security**: GitHub Advanced Security enabled with CodeQL + gosec scanning

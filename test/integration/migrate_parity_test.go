@@ -42,16 +42,16 @@ func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 	err = migrator.Migrate(ctx)
 	require.NoError(t, err)
 
-	// Verify migrations table exists and has correct records (v0.4.0 has 3 migrations: 000001, 000002, 000003)
+	// Verify migrations table exists and has correct records (commit 27dee4d has 4 migrations: 000001, 000002, 000003, 000004)
 	var migrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&migrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 3, migrationCount, "Should have exactly three migration records (000001, 000002, 000003)")
+	assert.Equal(t, 4, migrationCount, "Should have exactly four migration records (000001, 000002, 000003, 000004)")
 
 	var maxMigrationID int
 	err = conn.QueryRow(ctx, "SELECT MAX(id) FROM graphile_worker.migrations").Scan(&maxMigrationID)
 	require.NoError(t, err)
-	assert.Equal(t, 3, maxMigrationID, "Latest migration ID should be 3 (for v0.4.0 alignment)")
+	assert.Equal(t, 4, maxMigrationID, "Latest migration ID should be 4 (includes commit 27dee4d admin functions)")
 
 	// Verify first migration ID is 1 (parity with migrate.test.ts)
 	var firstMigrationID int
@@ -105,7 +105,7 @@ func TestMigrate_WithExistingSchema(t *testing.T) {
 	err = migrator.Migrate(ctx)
 	require.NoError(t, err)
 
-	// Verify only three migration records exist (v0.4.0: 000001, 000002, 000003)
+	// Verify only four migration records exist (commit 27dee4d: 000001, 000002, 000003, 000004)
 	conn, err := pool.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
@@ -113,5 +113,5 @@ func TestMigrate_WithExistingSchema(t *testing.T) {
 	var migrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&migrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 3, migrationCount, "Should have three migration records for v0.4.0")
+	assert.Equal(t, 4, migrationCount, "Should have four migration records for commit 27dee4d")
 }

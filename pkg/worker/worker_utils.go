@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -103,52 +104,44 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 
 	if len(spec) == 0 {
 		// Simple case - use the 2-parameter add_job function
-		query := fmt.Sprintf("SELECT %s.add_job($1, $2)", wu.schema)
+		query := fmt.Sprintf("SELECT (%s.add_job($1, $2)).id", wu.schema)
 		err = conn.QueryRow(ctx, query, taskIdentifier, string(payloadJSON)).Scan(&jobID)
 	} else {
-		// Complex case with TaskSpec
+		// Complex case with TaskSpec - use 7-parameter add_job with priority (commit 27dee4d)
 		s := spec[0]
 
-		if s.JobKey != nil {
-			// Use 6-parameter add_job with job_key (v0.4.0)
-			query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6)", wu.schema)
-
-			queueName := ""
-			if s.QueueName != nil {
-				queueName = *s.QueueName
-			}
-
-			runAt := time.Now()
-			if s.RunAt != nil {
-				runAt = *s.RunAt
-			}
-
-			maxAttempts := 25
-			if s.MaxAttempts != nil {
-				maxAttempts = *s.MaxAttempts
-			}
-
-			err = conn.QueryRow(ctx, query, taskIdentifier, string(payloadJSON), queueName, runAt, maxAttempts, *s.JobKey).Scan(&jobID)
-		} else {
-			// Use 5-parameter add_job (legacy format)
-			queueName := ""
-			if s.QueueName != nil {
-				queueName = *s.QueueName
-			}
-
-			runAt := time.Now()
-			if s.RunAt != nil {
-				runAt = *s.RunAt
-			}
-
-			maxAttempts := 25
-			if s.MaxAttempts != nil {
-				maxAttempts = *s.MaxAttempts
-			}
-
-			query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5)", wu.schema)
-			err = conn.QueryRow(ctx, query, taskIdentifier, string(payloadJSON), queueName, runAt, maxAttempts).Scan(&jobID)
+		// Set default values as per graphile-worker
+		var queueName *string
+		if s.QueueName != nil {
+			queueName = s.QueueName
 		}
+
+		var runAt *time.Time
+		if s.RunAt != nil {
+			runAt = s.RunAt
+		}
+
+		var maxAttempts *int
+		if s.MaxAttempts != nil {
+			maxAttempts = s.MaxAttempts
+		}
+
+		var priority *int
+		if s.Priority != nil {
+			priority = s.Priority
+		}
+
+		// Use 7-parameter add_job function (commit 27dee4d format)
+		query := fmt.Sprintf("SELECT (%s.add_job($1, $2, $3, $4, $5, $6, $7)).id", wu.schema)
+		err = conn.QueryRow(ctx, query,
+			taskIdentifier,      // identifier
+			string(payloadJSON), // payload
+			queueName,           // queue_name
+			runAt,               // run_at
+			maxAttempts,         // max_attempts
+			s.JobKey,            // job_key
+			priority,            // priority
+		).Scan(&jobID)
 	}
 
 	if err != nil {
@@ -198,7 +191,7 @@ func (wu *WorkerUtils) GetJobByKey(ctx context.Context, jobKey string) (*Job, er
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, locked_at, locked_by FROM %s.jobs WHERE key = $1 LIMIT 1", wu.schema)
+	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, locked_at, locked_by FROM %s.jobs WHERE key = $1 LIMIT 1", wu.schema)
 
 	var job Job
 	var queueName, lastError, key, lockedBy *string
@@ -207,7 +200,7 @@ func (wu *WorkerUtils) GetJobByKey(ctx context.Context, jobKey string) (*Job, er
 
 	err = conn.QueryRow(ctx, query, jobKey).Scan(
 		&id, &queueName, &job.TaskIdentifier, &job.Payload,
-		&job.RunAt, &job.AttemptCount, &job.MaxAttempts,
+		&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 		&lastError, &job.CreatedAt, &job.UpdatedAt,
 		&key, &lockedAt, &lockedBy,
 	)
@@ -239,4 +232,197 @@ func QuickAddJobGlobal(ctx context.Context, options WorkerUtilsOptions, taskIden
 	defer func() { _ = utils.Release() }() // Ignore release error
 
 	return utils.QuickAddJob(ctx, taskIdentifier, payload, spec...)
+}
+
+// CompleteJobs marks the specified jobs (by their ids) as if they were completed,
+// assuming they are not locked. Note that completing a job deletes it. You
+// may mark failed and permanently failed jobs as completed if you wish. The
+// deleted jobs will be returned (note that this may be fewer jobs than you
+// requested). (commit 27dee4d)
+func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job, error) {
+	if len(jobIDs) == 0 {
+		return []Job{}, nil
+	}
+
+	// Convert string IDs to int64 array for PostgreSQL bigint[]
+	bigintIDs := make([]int64, len(jobIDs))
+	for i, id := range jobIDs {
+		intID, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid job ID %s: %w", id, err)
+		}
+		bigintIDs[i] = intID
+	}
+
+	conn, err := wu.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	query := fmt.Sprintf("SELECT * FROM %s.complete_jobs($1)", wu.schema)
+	rows, err := conn.Query(ctx, query, bigintIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to complete jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var job Job
+		var queueName, lastError, key, lockedBy *string
+		var lockedAt *time.Time
+		var id int
+
+		err := rows.Scan(
+			&id, &queueName, &job.TaskIdentifier, &job.Payload,
+			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
+			&lastError, &job.CreatedAt, &job.UpdatedAt,
+			&key, &lockedAt, &lockedBy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job row: %w", err)
+		}
+
+		// Convert int id to string for v0.4.0 compatibility
+		job.ID = fmt.Sprintf("%d", id)
+		job.QueueName = queueName
+		job.LastError = lastError
+		job.Key = key
+		job.LockedAt = lockedAt
+		job.LockedBy = lockedBy
+
+		jobs = append(jobs, job)
+	}
+
+	return jobs, rows.Err()
+}
+
+// PermanentlyFailJobs marks the specified jobs (by their ids) as failed permanently,
+// assuming they are not locked. This means setting their `attempts` equal to their
+// `max_attempts`. The updated jobs will be returned (note that this may be fewer
+// jobs than you requested). (commit 27dee4d)
+func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string, reason string) ([]Job, error) {
+	if len(jobIDs) == 0 {
+		return []Job{}, nil
+	}
+
+	// Convert string IDs to int64 array for PostgreSQL bigint[]
+	bigintIDs := make([]int64, len(jobIDs))
+	for i, id := range jobIDs {
+		intID, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid job ID %s: %w", id, err)
+		}
+		bigintIDs[i] = intID
+	}
+
+	conn, err := wu.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	query := fmt.Sprintf("SELECT * FROM %s.permanently_fail_jobs($1, $2)", wu.schema)
+	rows, err := conn.Query(ctx, query, bigintIDs, reason)
+	if err != nil {
+		return nil, fmt.Errorf("failed to permanently fail jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var job Job
+		var queueName, lastError, key, lockedBy *string
+		var lockedAt *time.Time
+		var id int
+
+		err := rows.Scan(
+			&id, &queueName, &job.TaskIdentifier, &job.Payload,
+			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
+			&lastError, &job.CreatedAt, &job.UpdatedAt,
+			&key, &lockedAt, &lockedBy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job row: %w", err)
+		}
+
+		// Convert int id to string for v0.4.0 compatibility
+		job.ID = fmt.Sprintf("%d", id)
+		job.QueueName = queueName
+		job.LastError = lastError
+		job.Key = key
+		job.LockedAt = lockedAt
+		job.LockedBy = lockedBy
+
+		jobs = append(jobs, job)
+	}
+
+	return jobs, rows.Err()
+}
+
+// RescheduleJobs updates the specified scheduling properties of the jobs (assuming they are
+// not locked). All of the specified options are optional, omitted or null
+// values will left unmodified.
+//
+// This method can be used to postpone or advance job execution, or to schedule
+// a previously failed or permanently failed job for execution. The updated jobs
+// will be returned (note that this may be fewer jobs than you requested). (commit 27dee4d)
+func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, options RescheduleOptions) ([]Job, error) {
+	if len(jobIDs) == 0 {
+		return []Job{}, nil
+	}
+
+	// Convert string IDs to int64 array for PostgreSQL bigint[]
+	bigintIDs := make([]int64, len(jobIDs))
+	for i, id := range jobIDs {
+		intID, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid job ID %s: %w", id, err)
+		}
+		bigintIDs[i] = intID
+	}
+
+	conn, err := wu.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	query := fmt.Sprintf("SELECT * FROM %s.reschedule_jobs($1, $2, $3, $4, $5)", wu.schema)
+	rows, err := conn.Query(ctx, query, bigintIDs, options.RunAt, options.Priority, options.Attempts, options.MaxAttempts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reschedule jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var job Job
+		var queueName, lastError, key, lockedBy *string
+		var lockedAt *time.Time
+		var id int
+
+		err := rows.Scan(
+			&id, &queueName, &job.TaskIdentifier, &job.Payload,
+			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
+			&lastError, &job.CreatedAt, &job.UpdatedAt,
+			&key, &lockedAt, &lockedBy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan job row: %w", err)
+		}
+
+		// Convert int id to string for v0.4.0 compatibility
+		job.ID = fmt.Sprintf("%d", id)
+		job.QueueName = queueName
+		job.LastError = lastError
+		job.Key = key
+		job.LockedAt = lockedAt
+		job.LockedBy = lockedBy
+
+		jobs = append(jobs, job)
+	}
+
+	return jobs, rows.Err()
 }

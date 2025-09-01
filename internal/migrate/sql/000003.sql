@@ -1,20 +1,19 @@
---! breaking-change
-alter table :GRAPHILE_WORKER_SCHEMA.jobs alter column queue_name drop not null;
+alter table graphile_worker.jobs alter column queue_name drop not null;
 
-create or replace function :GRAPHILE_WORKER_SCHEMA.add_job(
+create or replace function graphile_worker.add_job(
   identifier text,
   payload json = '{}',
   queue_name text = null,
   run_at timestamptz = now(),
   max_attempts int = 25,
   job_key text = null
-) returns :GRAPHILE_WORKER_SCHEMA.jobs as $$
+) returns graphile_worker.jobs as $$
 declare
-  v_job :GRAPHILE_WORKER_SCHEMA.jobs;
+  v_job graphile_worker.jobs;
 begin
   if job_key is not null then
     -- Upsert job
-    insert into :GRAPHILE_WORKER_SCHEMA.jobs (task_identifier, payload, queue_name, run_at, max_attempts, key)
+    insert into graphile_worker.jobs (task_identifier, payload, queue_name, run_at, max_attempts, key)
       values(
         identifier,
         payload,
@@ -45,7 +44,7 @@ begin
     -- Upsert failed -> there must be an existing job that is locked. Remove
     -- existing key to allow a new one to be inserted, and prevent any
     -- subsequent retries by bumping attempts to the max allowed.
-    update :GRAPHILE_WORKER_SCHEMA.jobs
+    update graphile_worker.jobs
       set
         key = null,
         attempts = jobs.max_attempts
@@ -53,7 +52,7 @@ begin
   end if;
 
   -- insert the new job. Assume no conflicts due to the update above
-  insert into :GRAPHILE_WORKER_SCHEMA.jobs(task_identifier, payload, queue_name, run_at, max_attempts, key)
+  insert into graphile_worker.jobs(task_identifier, payload, queue_name, run_at, max_attempts, key)
     values(
       identifier,
       payload,
@@ -69,11 +68,11 @@ begin
 end;
 $$ language plpgsql volatile;
 
-create or replace function :GRAPHILE_WORKER_SCHEMA.get_job(worker_id text, task_identifiers text[] = null, job_expiry interval = interval '4 hours') returns :GRAPHILE_WORKER_SCHEMA.jobs as $$
+create or replace function graphile_worker.get_job(worker_id text, task_identifiers text[] = null, job_expiry interval = interval '4 hours') returns graphile_worker.jobs as $$
 declare
   v_job_id bigint;
   v_queue_name text;
-  v_row :GRAPHILE_WORKER_SCHEMA.jobs;
+  v_row graphile_worker.jobs;
   v_now timestamptz = now();
 begin
   if worker_id is null or length(worker_id) < 10 then
@@ -81,14 +80,14 @@ begin
   end if;
 
   select jobs.queue_name, jobs.id into v_queue_name, v_job_id
-    from :GRAPHILE_WORKER_SCHEMA.jobs
+    from graphile_worker.jobs
     where (jobs.locked_at is null or jobs.locked_at < (v_now - job_expiry))
     and (
       jobs.queue_name is null
-      or
+    or
       exists (
         select 1
-        from :GRAPHILE_WORKER_SCHEMA.job_queues
+        from graphile_worker.job_queues
         where job_queues.queue_name = jobs.queue_name
         and (job_queues.locked_at is null or job_queues.locked_at < (v_now - job_expiry))
         for update
@@ -108,14 +107,14 @@ begin
   end if;
 
   if v_queue_name is not null then
-    update :GRAPHILE_WORKER_SCHEMA.job_queues
+    update graphile_worker.job_queues
       set
         locked_by = worker_id,
         locked_at = v_now
       where job_queues.queue_name = v_queue_name;
   end if;
 
-  update :GRAPHILE_WORKER_SCHEMA.jobs
+  update graphile_worker.jobs
     set
       attempts = attempts + 1,
       locked_by = worker_id,
@@ -127,11 +126,11 @@ begin
 end;
 $$ language plpgsql volatile;
 
-create or replace function :GRAPHILE_WORKER_SCHEMA.fail_job(worker_id text, job_id bigint, error_message text) returns :GRAPHILE_WORKER_SCHEMA.jobs as $$
+create or replace function graphile_worker.fail_job(worker_id text, job_id bigint, error_message text) returns graphile_worker.jobs as $$
 declare
-  v_row :GRAPHILE_WORKER_SCHEMA.jobs;
+  v_row graphile_worker.jobs;
 begin
-  update :GRAPHILE_WORKER_SCHEMA.jobs
+  update graphile_worker.jobs
     set
       last_error = error_message,
       run_at = greatest(now(), run_at) + (exp(least(attempts, 10))::text || ' seconds')::interval,
@@ -141,7 +140,7 @@ begin
     returning * into v_row;
 
   if v_row.queue_name is not null then
-    update :GRAPHILE_WORKER_SCHEMA.job_queues
+    update graphile_worker.job_queues
       set locked_by = null, locked_at = null
       where queue_name = v_row.queue_name and locked_by = worker_id;
   end if;
@@ -150,16 +149,16 @@ begin
 end;
 $$ language plpgsql volatile strict;
 
-create or replace function :GRAPHILE_WORKER_SCHEMA.complete_job(worker_id text, job_id bigint) returns :GRAPHILE_WORKER_SCHEMA.jobs as $$
+create or replace function graphile_worker.complete_job(worker_id text, job_id bigint) returns graphile_worker.jobs as $$
 declare
-  v_row :GRAPHILE_WORKER_SCHEMA.jobs;
+  v_row graphile_worker.jobs;
 begin
-  delete from :GRAPHILE_WORKER_SCHEMA.jobs
+  delete from graphile_worker.jobs
     where id = job_id
     returning * into v_row;
 
   if v_row.queue_name is not null then
-    update :GRAPHILE_WORKER_SCHEMA.job_queues
+    update graphile_worker.job_queues
       set locked_by = null, locked_at = null
       where queue_name = v_row.queue_name and locked_by = worker_id;
   end if;
@@ -168,12 +167,11 @@ begin
 end;
 $$ language plpgsql;
 
-drop trigger _500_increase_job_queue_count on :GRAPHILE_WORKER_SCHEMA.jobs;
-drop trigger _500_decrease_job_queue_count on :GRAPHILE_WORKER_SCHEMA.jobs;
-drop trigger _500_increase_job_queue_count_update on :GRAPHILE_WORKER_SCHEMA.jobs;
-drop trigger _500_decrease_job_queue_count_update on :GRAPHILE_WORKER_SCHEMA.jobs;
-
-create trigger _500_increase_job_queue_count after insert on :GRAPHILE_WORKER_SCHEMA.jobs for each row when (NEW.queue_name is not null) execute procedure :GRAPHILE_WORKER_SCHEMA.jobs__increase_job_queue_count();
-create trigger _500_decrease_job_queue_count after delete on :GRAPHILE_WORKER_SCHEMA.jobs for each row when (OLD.queue_name is not null) execute procedure :GRAPHILE_WORKER_SCHEMA.jobs__decrease_job_queue_count();
-create trigger _500_increase_job_queue_count_update after update of queue_name on :GRAPHILE_WORKER_SCHEMA.jobs for each row when (NEW.queue_name is distinct from OLD.queue_name AND NEW.queue_name is not null) execute procedure :GRAPHILE_WORKER_SCHEMA.jobs__increase_job_queue_count();
-create trigger _500_decrease_job_queue_count_update after update of queue_name on :GRAPHILE_WORKER_SCHEMA.jobs for each row when (NEW.queue_name is distinct from OLD.queue_name AND OLD.queue_name is not null) execute procedure :GRAPHILE_WORKER_SCHEMA.jobs__decrease_job_queue_count();
+drop trigger _500_increase_job_queue_count on graphile_worker.jobs;
+drop trigger _500_decrease_job_queue_count on graphile_worker.jobs;
+drop trigger _500_increase_job_queue_count_update on graphile_worker.jobs;
+drop trigger _500_decrease_job_queue_count_update on graphile_worker.jobs;
+create trigger _500_increase_job_queue_count after insert on graphile_worker.jobs for each row when (NEW.queue_name is not null) execute procedure graphile_worker.jobs__increase_job_queue_count();
+create trigger _500_decrease_job_queue_count after delete on graphile_worker.jobs for each row when (OLD.queue_name is not null) execute procedure graphile_worker.jobs__decrease_job_queue_count();
+create trigger _500_increase_job_queue_count_update after update of queue_name on graphile_worker.jobs for each row when (NEW.queue_name is distinct from OLD.queue_name AND NEW.queue_name is not null) execute procedure graphile_worker.jobs__increase_job_queue_count();
+create trigger _500_decrease_job_queue_count_update after update of queue_name on graphile_worker.jobs for each row when (NEW.queue_name is distinct from OLD.queue_name AND OLD.queue_name is not null) execute procedure graphile_worker.jobs__decrease_job_queue_count();

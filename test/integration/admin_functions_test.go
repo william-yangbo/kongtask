@@ -1,0 +1,271 @@
+// Package integration contains integration tests for kongtask
+// This file tests the admin functions introduced in commit 27dee4d
+package integration
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/internal/testutil"
+	"github.com/william-yangbo/kongtask/pkg/worker"
+)
+
+// Helper function to create a selection of jobs for testing admin functions
+func makeSelectionOfJobs(t *testing.T, utils *worker.WorkerUtils, pool *pgxpool.Pool) (failedJob, regularJob1, lockedJob, regularJob2, untouchedJob worker.Job) {
+	ctx := context.Background()
+	future := time.Now().Add(60 * time.Minute)
+
+	// Create jobs with different states
+	failedJobID, err := utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 1}, worker.TaskSpec{RunAt: &future})
+	require.NoError(t, err)
+
+	regularJob1ID, err := utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 2}, worker.TaskSpec{RunAt: &future})
+	require.NoError(t, err)
+
+	lockedJobID, err := utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 3}, worker.TaskSpec{RunAt: &future})
+	require.NoError(t, err)
+
+	regularJob2ID, err := utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 4}, worker.TaskSpec{RunAt: &future})
+	require.NoError(t, err)
+
+	untouchedJobID, err := utils.QuickAddJob(ctx, "job1", map[string]interface{}{"a": 5}, worker.TaskSpec{RunAt: &future})
+	require.NoError(t, err)
+
+	// Lock one job and fail another
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	// Lock a job by setting locked_by and locked_at
+	_, err = conn.Exec(ctx,
+		"UPDATE graphile_worker.jobs SET locked_by = 'test', locked_at = now() WHERE id = $1",
+		lockedJobID)
+	require.NoError(t, err)
+
+	// Fail a job by setting attempts = max_attempts
+	_, err = conn.Exec(ctx,
+		"UPDATE graphile_worker.jobs SET attempts = max_attempts, last_error = 'Failed forever' WHERE id = $1",
+		failedJobID)
+	require.NoError(t, err)
+
+	// Retrieve the jobs to return
+	failedJob = *mustGetJobByID(t, pool, failedJobID)
+	regularJob1 = *mustGetJobByID(t, pool, regularJob1ID)
+	lockedJob = *mustGetJobByID(t, pool, lockedJobID)
+	regularJob2 = *mustGetJobByID(t, pool, regularJob2ID)
+	untouchedJob = *mustGetJobByID(t, pool, untouchedJobID)
+
+	return
+}
+
+// Helper function to get a job by ID
+func mustGetJobByID(t *testing.T, pool *pgxpool.Pool, jobID string) *worker.Job {
+	ctx := context.Background()
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	var job worker.Job
+	var queueName, lastError, key, lockedBy *string
+	var lockedAt *time.Time
+	var id int
+
+	err = conn.QueryRow(ctx,
+		"SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, locked_at, locked_by FROM graphile_worker.jobs WHERE id = $1",
+		jobID).Scan(
+		&id, &queueName, &job.TaskIdentifier, &job.Payload,
+		&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
+		&lastError, &job.CreatedAt, &job.UpdatedAt,
+		&key, &lockedAt, &lockedBy,
+	)
+	require.NoError(t, err)
+
+	job.ID = jobID
+	job.QueueName = queueName
+	job.LastError = lastError
+	job.Key = key
+	job.LockedAt = lockedAt
+	job.LockedBy = lockedBy
+
+	return &job
+}
+
+// TestCompleteJobs tests the completeJobs admin function (commit 27dee4d)
+func TestCompleteJobs(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx := context.Background()
+
+	// Reset and migrate database
+	testutil.Reset(t, pool, "graphile_worker")
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	utils := worker.NewWorkerUtils(pool, "graphile_worker")
+
+	failedJob, regularJob1, lockedJob, regularJob2, _ := makeSelectionOfJobs(t, utils, pool)
+
+	// Complete some jobs
+	jobs := []string{failedJob.ID, regularJob1.ID, lockedJob.ID, regularJob2.ID}
+	completedJobs, err := utils.CompleteJobs(ctx, jobs)
+	require.NoError(t, err)
+
+	// Should complete failed, regularJob1, and regularJob2 (but not locked job)
+	assert.Len(t, completedJobs, 3, "Should complete 3 jobs (excluding locked job)")
+
+	completedIDs := make([]string, len(completedJobs))
+	for i, job := range completedJobs {
+		completedIDs[i] = job.ID
+	}
+
+	assert.Contains(t, completedIDs, failedJob.ID)
+	assert.Contains(t, completedIDs, regularJob1.ID)
+	assert.Contains(t, completedIDs, regularJob2.ID)
+	assert.NotContains(t, completedIDs, lockedJob.ID)
+
+	// Verify remaining jobs in database
+	remainingCount := testutil.JobCount(t, pool, "graphile_worker")
+	assert.Equal(t, 2, remainingCount, "Should have 2 jobs remaining (locked + untouched)")
+}
+
+// TestPermanentlyFailJobs tests the permanentlyFailJobs admin function (commit 27dee4d)
+func TestPermanentlyFailJobs(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx := context.Background()
+
+	// Reset and migrate database
+	testutil.Reset(t, pool, "graphile_worker")
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	utils := worker.NewWorkerUtils(pool, "graphile_worker")
+
+	failedJob, regularJob1, lockedJob, regularJob2, untouchedJob := makeSelectionOfJobs(t, utils, pool)
+
+	// Permanently fail some jobs
+	jobs := []string{failedJob.ID, regularJob1.ID, lockedJob.ID, regularJob2.ID}
+	reason := "TESTING!"
+	failedJobs, err := utils.PermanentlyFailJobs(ctx, jobs, reason)
+	require.NoError(t, err)
+
+	// Should fail failed, regularJob1, and regularJob2 (but not locked job)
+	assert.Len(t, failedJobs, 3, "Should fail 3 jobs (excluding locked job)")
+
+	for _, job := range failedJobs {
+		assert.NotNil(t, job.LastError)
+		assert.Equal(t, reason, *job.LastError)
+		assert.Equal(t, job.MaxAttempts, job.AttemptCount, "Attempts should equal max_attempts")
+		assert.Greater(t, job.AttemptCount, 0, "Attempt count should be greater than 0")
+	}
+
+	// Verify all jobs still exist but are failed
+	totalCount := testutil.JobCount(t, pool, "graphile_worker")
+	assert.Equal(t, 5, totalCount, "Should still have all 5 jobs")
+
+	// Verify untouched job is unmodified
+	untouchedJobAfter := mustGetJobByID(t, pool, untouchedJob.ID)
+	assert.Equal(t, untouchedJob.AttemptCount, untouchedJobAfter.AttemptCount)
+	assert.Equal(t, untouchedJob.LastError, untouchedJobAfter.LastError)
+}
+
+// TestRescheduleJobs tests the rescheduleJobs admin function (commit 27dee4d)
+func TestRescheduleJobs(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx := context.Background()
+
+	// Reset and migrate database
+	testutil.Reset(t, pool, "graphile_worker")
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	utils := worker.NewWorkerUtils(pool, "graphile_worker")
+
+	failedJob, regularJob1, lockedJob, regularJob2, untouchedJob := makeSelectionOfJobs(t, utils, pool)
+
+	// Reschedule some jobs
+	jobs := []string{failedJob.ID, regularJob1.ID, lockedJob.ID, regularJob2.ID}
+	nowish := time.Now().Add(5 * time.Minute)
+	newPriority := 5
+	newAttempts := 1
+
+	rescheduledJobs, err := utils.RescheduleJobs(ctx, jobs, worker.RescheduleOptions{
+		RunAt:    &nowish,
+		Priority: &newPriority,
+		Attempts: &newAttempts,
+	})
+	require.NoError(t, err)
+
+	// Should reschedule failed, regularJob1, and regularJob2 (but not locked job)
+	assert.Len(t, rescheduledJobs, 3, "Should reschedule 3 jobs (excluding locked job)")
+
+	for _, job := range rescheduledJobs {
+		assert.Equal(t, newAttempts, job.AttemptCount)
+		assert.Equal(t, newPriority, job.Priority)
+		assert.WithinDuration(t, nowish, job.RunAt, time.Second, "Run time should be close to specified time")
+
+		// Failed job should retain its error message
+		if job.ID == failedJob.ID {
+			assert.NotNil(t, job.LastError)
+			assert.Equal(t, "Failed forever", *job.LastError)
+		} else {
+			// Regular jobs should have null error
+			assert.Nil(t, job.LastError)
+		}
+	}
+
+	// Verify all jobs still exist
+	totalCount := testutil.JobCount(t, pool, "graphile_worker")
+	assert.Equal(t, 5, totalCount, "Should still have all 5 jobs")
+
+	// Verify untouched job is unmodified
+	untouchedJobAfter := mustGetJobByID(t, pool, untouchedJob.ID)
+	assert.Equal(t, untouchedJob.Priority, untouchedJobAfter.Priority)
+	assert.Equal(t, untouchedJob.AttemptCount, untouchedJobAfter.AttemptCount)
+}
+
+// TestPrioritySupport tests that job priority is properly supported (commit 27dee4d)
+func TestPrioritySupport(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx := context.Background()
+
+	// Reset and migrate database
+	testutil.Reset(t, pool, "graphile_worker")
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	utils := worker.NewWorkerUtils(pool, "graphile_worker")
+
+	// Create jobs with different priorities
+	lowPriority := 1
+	highPriority := 10
+
+	lowPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "low"},
+		worker.TaskSpec{Priority: &lowPriority})
+	require.NoError(t, err)
+
+	highPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "high"},
+		worker.TaskSpec{Priority: &highPriority})
+	require.NoError(t, err)
+
+	// Verify priority is stored correctly
+	lowPriorityJob := mustGetJobByID(t, pool, lowPriorityJobID)
+	highPriorityJob := mustGetJobByID(t, pool, highPriorityJobID)
+
+	assert.Equal(t, lowPriority, lowPriorityJob.Priority)
+	assert.Equal(t, highPriority, highPriorityJob.Priority)
+
+	// Default priority should be 0
+	defaultJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "default"})
+	require.NoError(t, err)
+
+	defaultJob := mustGetJobByID(t, pool, defaultJobID)
+	assert.Equal(t, 0, defaultJob.Priority)
+}

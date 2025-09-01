@@ -41,6 +41,7 @@ type Job struct {
 	QueueName      *string         `json:"queue_name"` // Changed to nullable in v0.4.0
 	TaskIdentifier string          `json:"task_identifier"`
 	Payload        json.RawMessage `json:"payload"`
+	Priority       int             `json:"priority"` // New in commit 27dee4d: job priority support
 	RunAt          time.Time       `json:"run_at"`
 	AttemptCount   int             `json:"attempts"`
 	MaxAttempts    int             `json:"max_attempts"`
@@ -56,8 +57,17 @@ type Job struct {
 type TaskSpec struct {
 	QueueName   *string    `json:"queueName,omitempty"`   // The queue to run this task under
 	RunAt       *time.Time `json:"runAt,omitempty"`       // Schedule this task to run in the future
+	Priority    *int       `json:"priority,omitempty"`    // Job priority (higher number = higher priority, default: 0)
 	MaxAttempts *int       `json:"maxAttempts,omitempty"` // How many retries should this task get
 	JobKey      *string    `json:"jobKey,omitempty"`      // New in v0.4.0: unique identifier for the job
+}
+
+// RescheduleOptions represents options for rescheduling jobs (commit 27dee4d)
+type RescheduleOptions struct {
+	RunAt       *time.Time `json:"runAt,omitempty"`       // New run time for the jobs
+	Priority    *int       `json:"priority,omitempty"`    // New priority for the jobs
+	Attempts    *int       `json:"attempts,omitempty"`    // Reset attempt count
+	MaxAttempts *int       `json:"maxAttempts,omitempty"` // New maximum attempts
 }
 
 // TaskHandler is a function that processes a job (v0.2.0 signature with helpers)
@@ -232,7 +242,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, run_at, attempts, max_attempts, last_error, created_at, updated_at FROM %s.get_job($1)", w.schema)
+	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at FROM %s.get_job($1)", w.schema)
 	row := conn.QueryRow(ctx, query, w.workerID)
 
 	var job Job
@@ -240,6 +250,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	var queueName *string
 	var taskIdentifier *string
 	var payload *json.RawMessage
+	var priority *int
 	var runAt *time.Time
 	var attemptCount *int
 	var maxAttempts *int
@@ -252,6 +263,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		&queueName,
 		&taskIdentifier,
 		&payload,
+		&priority,
 		&runAt,
 		&attemptCount,
 		&maxAttempts,
@@ -276,6 +288,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	job.QueueName = queueName  // Already a pointer
 	job.TaskIdentifier = *taskIdentifier
 	job.Payload = *payload
+	job.Priority = *priority
 	job.RunAt = *runAt
 	job.AttemptCount = *attemptCount
 	job.MaxAttempts = *maxAttempts
