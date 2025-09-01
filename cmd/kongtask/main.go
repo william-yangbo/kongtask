@@ -19,14 +19,15 @@ import (
 )
 
 var (
-	cfgFile      string
-	databaseURL  string
-	schema       string
-	schemaOnly   bool
-	once         bool
-	jobs         int
-	maxPoolSize  int
-	pollInterval int
+	cfgFile         string
+	databaseURL     string
+	schema          string
+	schemaOnly      bool
+	once            bool
+	jobs            int
+	maxPoolSize     int
+	pollInterval    int
+	noHandleSignals bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -119,6 +120,33 @@ making it suitable for one-time job processing or scheduled runs.`,
 	},
 }
 
+// generateConfigCmd generates a sample configuration file
+var generateConfigCmd = &cobra.Command{
+	Use:   "generate-config [filename]",
+	Short: "Generate a sample configuration file",
+	Long: `Generate a sample configuration file with all available options and their default values.
+This helps users understand the available configuration options and their format.
+
+By default, generates 'kongtask.json' in the current directory.`,
+	Args: cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		filename := "kongtask.json"
+		if len(args) > 0 {
+			filename = args[0]
+		}
+
+		if err := worker.SaveSampleConfiguration(filename); err != nil {
+			log.Fatalf("Failed to generate config file: %v", err)
+		}
+
+		fmt.Printf("Sample configuration file generated: %s\n", filename)
+		fmt.Println("\nYou can now:")
+		fmt.Println("1. Edit the configuration file with your settings")
+		fmt.Println("2. Use --config flag to specify the config file")
+		fmt.Println("3. Or place it in your home directory as ~/.kongtask.json")
+	},
+}
+
 func init() {
 	cobra.OnInitialize(initConfig)
 
@@ -135,6 +163,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&jobs, "jobs", "j", worker.ConcurrentJobs, "number of jobs to run concurrently")
 	rootCmd.Flags().IntVarP(&maxPoolSize, "max-pool-size", "m", worker.DefaultMaxPoolSize, "maximum size of the PostgreSQL pool")
 	rootCmd.Flags().IntVar(&pollInterval, "poll-interval", int(worker.DefaultPollInterval.Milliseconds()), "how long to wait between polling for jobs in milliseconds (for jobs scheduled in the future/retries)")
+	rootCmd.Flags().BoolVar(&noHandleSignals, "no-handle-signals", false, "if set, we won't install signal handlers and it'll be up to you to handle graceful shutdown")
 
 	// Add connection alias for compatibility with graphile-worker
 	rootCmd.PersistentFlags().StringVarP(&databaseURL, "connection", "c", "", "Database connection string (alias for --database-url)")
@@ -152,9 +181,11 @@ func init() {
 	rootCmd.AddCommand(workerCmd)
 	rootCmd.AddCommand(runTaskListCmd)
 	rootCmd.AddCommand(runTaskListOnceCmd)
+	rootCmd.AddCommand(generateConfigCmd)
 }
 
 // initConfig reads in config file and ENV variables if set.
+// Enhanced to support the new configuration system with priority handling
 func initConfig() {
 	if cfgFile != "" {
 		// Use config file from the flag.
@@ -164,12 +195,18 @@ func initConfig() {
 		home, err := os.UserHomeDir()
 		cobra.CheckErr(err)
 
-		// Search config in home directory with name ".kongtask" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".kongtask")
+		// Search config in multiple locations following graphile-worker pattern
+		viper.AddConfigPath(".")               // current directory
+		viper.AddConfigPath(home)              // home directory
+		viper.AddConfigPath(home + "/.config") // ~/.config directory
+
+		// Support multiple config formats
+		viper.SetConfigName("kongtask")  // name of config file (without extension)
+		viper.SetConfigName(".kongtask") // hidden config file
 	}
 
+	// Enable environment variable support with GRAPHILE_WORKER_ prefix
+	viper.SetEnvPrefix("GRAPHILE_WORKER")
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
@@ -445,51 +482,52 @@ func runTaskListPool() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbURL := viper.GetString("database_url")
+	// Load configuration with priority: CLI flags > Environment > Config file > Defaults
+	cliOverrides := map[string]interface{}{}
+
+	// Collect CLI overrides (only if explicitly set)
+	if databaseURL != "" {
+		cliOverrides["database_url"] = databaseURL
+	}
+	if schema != "" {
+		cliOverrides["schema"] = schema
+	}
+	if jobs > 0 {
+		cliOverrides["concurrency"] = jobs
+	}
+	if maxPoolSize > 0 {
+		cliOverrides["max_pool_size"] = maxPoolSize
+	}
+	if pollInterval > 0 {
+		cliOverrides["poll_interval"] = time.Duration(pollInterval) * time.Millisecond
+	}
+
+	// Load configuration with priority system
+	config, err := worker.LoadConfigurationWithOverrides(cliOverrides)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Validate configuration
+	if err := config.ValidateConfiguration(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Use database URL from config or fallback to environment
+	dbURL := config.DatabaseURL
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
 	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+		return fmt.Errorf("database URL is required (use --database-url flag, config file, or DATABASE_URL env var)")
 	}
-
-	schemaName := viper.GetString("schema")
-	if schemaName == "" {
-		schemaName = "graphile_worker"
-	}
-
-	// Get CLI parameters or use defaults
-	concurrency := viper.GetInt("jobs")
-	if concurrency <= 0 {
-		concurrency = jobs
-		if concurrency <= 0 {
-			concurrency = worker.ConcurrentJobs
-		}
-	}
-
-	maxPool := viper.GetInt("max_pool_size")
-	if maxPool <= 0 {
-		maxPool = maxPoolSize
-		if maxPool <= 0 {
-			maxPool = worker.DefaultMaxPoolSize
-		}
-	}
-
-	pollIntervalMs := viper.GetInt("poll_interval")
-	if pollIntervalMs <= 0 {
-		pollIntervalMs = pollInterval
-		if pollIntervalMs <= 0 {
-			pollIntervalMs = int(worker.DefaultPollInterval.Milliseconds())
-		}
-	}
-	pollDuration := time.Duration(pollIntervalMs) * time.Millisecond
 
 	// Create connection pool with custom max size
 	poolConfig, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	poolConfig.MaxConns = int32(maxPool)
+	poolConfig.MaxConns = int32(config.MaxPoolSize)
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -514,16 +552,16 @@ func runTaskListPool() error {
 		},
 	}
 
-	// Create options for worker pool with CLI parameters
-	options := worker.WorkerPoolOptions{
-		Concurrency:  concurrency,
-		Schema:       schemaName,
-		Logger:       logger.NewLogger(logger.ConsoleLogFactory),
-		PollInterval: pollDuration,
+	// Create worker pool options from configuration
+	options := config.ToWorkerPoolOptions()
+
+	// Override no handle signals flag based on CLI
+	if noHandleSignals {
+		options.NoHandleSignals = true
 	}
 
 	log.Printf("Starting worker pool with schema: %s, concurrency: %d, poll interval: %v, max pool size: %d",
-		schemaName, options.Concurrency, pollDuration, maxPool)
+		config.Schema, options.Concurrency, config.PollInterval, config.MaxPoolSize)
 
 	// Start worker pool with signal handling (mirrors TypeScript runTaskList exactly)
 	workerPool, err := worker.RunTaskListWithSignalHandling(ctx, options, tasks, pool)

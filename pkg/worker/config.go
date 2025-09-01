@@ -33,6 +33,7 @@ type Config struct {
 
 // DefaultConfig returns configuration with all default values
 // matching graphile-worker config.ts constants
+// Now supports loading from configuration file via LoadConfigurationWithOverrides
 func DefaultConfig() Config {
 	return Config{
 		PollInterval:        DefaultPollInterval, // 2 * time.Second (from worker.go)
@@ -41,6 +42,12 @@ func DefaultConfig() Config {
 		MaxPoolSize:         DefaultMaxPoolSize,  // 10
 		Schema:              getSchemaFromEnv(),  // "graphile_worker" or from env
 	}
+}
+
+// LoadConfigWithPriority loads configuration with full priority support
+// Priority: CLI overrides > Environment variables > Config file > Defaults
+func LoadConfigWithPriority(cliOverrides map[string]interface{}) (*Configuration, error) {
+	return LoadConfigurationWithOverrides(cliOverrides)
 }
 
 // getSchemaFromEnv returns the schema name from environment variable or default
