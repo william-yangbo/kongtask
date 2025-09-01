@@ -539,7 +539,9 @@ func TestRunTaskListOnceJobUpdateScenarios(t *testing.T) {
 		taskMap := map[string]worker.TaskHandler{
 			"job1": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
 				var data map[string]interface{}
-				json.Unmarshal(payload, &data)
+				if err := json.Unmarshal(payload, &data); err != nil {
+					return fmt.Errorf("failed to unmarshal payload: %w", err)
+				}
 				succeed := data["succeed"].(bool)
 
 				mu.Lock()

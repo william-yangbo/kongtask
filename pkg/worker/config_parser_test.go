@@ -30,8 +30,14 @@ func TestGetDefaults(t *testing.T) {
 
 func TestGetDefaultsWithEnvVar(t *testing.T) {
 	// Set environment variable
-	os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_schema")
-	defer os.Unsetenv("GRAPHILE_WORKER_SCHEMA")
+	if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_schema"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("GRAPHILE_WORKER_SCHEMA"); err != nil {
+			t.Errorf("Failed to unset environment variable: %v", err)
+		}
+	}()
 
 	defaults := GetDefaults()
 	if defaults.Schema != "custom_schema" {
@@ -45,7 +51,11 @@ func TestGetDefaultsWithConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create config file
 	configContent := `{
@@ -66,7 +76,11 @@ func TestGetDefaultsWithConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Errorf("Failed to restore directory: %v", err)
+		}
+	}()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal(err)

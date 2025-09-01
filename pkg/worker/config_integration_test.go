@@ -12,7 +12,11 @@ func TestGetDefaultsWithYAMLConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create YAML config file
 	configContent := `
@@ -33,7 +37,11 @@ maxPoolSize: 40
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Errorf("Failed to restore directory: %v", err)
+		}
+	}()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal(err)
@@ -64,7 +72,11 @@ func TestConfigPriorityOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create config file with one value
 	configContent := `{
@@ -78,15 +90,25 @@ func TestConfigPriorityOrder(t *testing.T) {
 	}
 
 	// Set environment variable (should override config file)
-	os.Setenv("GRAPHILE_WORKER_SCHEMA", "env_var_schema")
-	defer os.Unsetenv("GRAPHILE_WORKER_SCHEMA")
+	if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", "env_var_schema"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("GRAPHILE_WORKER_SCHEMA"); err != nil {
+			t.Errorf("Failed to unset environment variable: %v", err)
+		}
+	}()
 
 	// Change to temp directory
 	oldDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Errorf("Failed to restore directory: %v", err)
+		}
+	}()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal(err)

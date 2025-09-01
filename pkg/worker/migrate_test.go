@@ -17,8 +17,8 @@ func TestMigrate(t *testing.T) {
 	ctx := context.Background()
 
 	// Start PostgreSQL container
-	postgresContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -70,8 +70,14 @@ func TestMigrate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Set environment variable
-		os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_worker")
-		defer os.Unsetenv("GRAPHILE_WORKER_SCHEMA")
+		if err := os.Setenv("GRAPHILE_WORKER_SCHEMA", "custom_worker"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Unsetenv("GRAPHILE_WORKER_SCHEMA"); err != nil {
+				t.Errorf("Failed to unset environment variable: %v", err)
+			}
+		}()
 
 		options := WorkerSharedOptions{}
 		err := Migrate(ctx, options, pool)
@@ -91,8 +97,8 @@ func TestMigrateWithSharedOptions(t *testing.T) {
 	ctx := context.Background()
 
 	// Start PostgreSQL container
-	postgresContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
