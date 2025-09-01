@@ -58,10 +58,11 @@ type WorkerSharedOptions struct {
 // SharedOptions contains common options for pools, workers, and utils
 // This mirrors the TypeScript SharedOptions interface
 type SharedOptions struct {
-	Logger           *logger.Logger `json:"logger,omitempty"`           // How should messages be logged
-	Schema           *string        `json:"schema,omitempty"`           // PostgreSQL schema to use
-	ConnectionString *string        `json:"connectionString,omitempty"` // PostgreSQL connection string
-	MaxPoolSize      *int           `json:"maxPoolSize,omitempty"`      // Maximum size of PostgreSQL pool
+	Logger               *logger.Logger `json:"logger,omitempty"`               // How should messages be logged
+	Schema               *string        `json:"schema,omitempty"`               // PostgreSQL schema to use
+	ConnectionString     *string        `json:"connectionString,omitempty"`     // PostgreSQL connection string
+	MaxPoolSize          *int           `json:"maxPoolSize,omitempty"`          // Maximum size of PostgreSQL pool
+	NoPreparedStatements *bool          `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
 }
 
 // WorkerInterface represents a job worker

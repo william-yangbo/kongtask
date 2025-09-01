@@ -14,14 +14,15 @@ import (
 
 // WorkerPoolOptions represents options for worker pool
 type WorkerPoolOptions struct {
-	Concurrency         int            // Number of concurrent workers
-	Schema              string         // Database schema (default: "graphile_worker")
-	PollInterval        time.Duration  // Polling interval (default: 1s)
-	Logger              *logger.Logger // Logger instance
-	NoHandleSignals     bool           // If set true, we won't install signal handlers (v0.5.0 feature)
-	MaxPoolSize         int            // Maximum database connection pool size
-	MaxContiguousErrors int            // Maximum contiguous errors before worker stops
-	DatabaseURL         string         // Database connection URL
+	Concurrency          int            // Number of concurrent workers
+	Schema               string         // Database schema (default: "graphile_worker")
+	PollInterval         time.Duration  // Polling interval (default: 1s)
+	Logger               *logger.Logger // Logger instance
+	NoHandleSignals      bool           // If set true, we won't install signal handlers (v0.5.0 feature)
+	MaxPoolSize          int            // Maximum database connection pool size
+	MaxContiguousErrors  int            // Maximum contiguous errors before worker stops
+	DatabaseURL          string         // Database connection URL
+	NoPreparedStatements bool           // If set true, disable prepared statements for pgBouncer compatibility
 }
 
 // generatePoolID generates a cryptographically secure random pool identifier
@@ -99,7 +100,7 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 	// Create workers
 	poolID := generatePoolID() // Generate unique pool identifier
 	for i := 0; i < options.Concurrency; i++ {
-		worker := NewWorker(pool, options.Schema)
+		worker := NewWorker(pool, options.Schema, WithNoPreparedStatements(options.NoPreparedStatements))
 		// Use pool ID + worker index for unique worker identification
 		// This maintains worker uniqueness while using secure random generation
 		worker.workerID = fmt.Sprintf("worker-%s-%d", poolID, i)

@@ -201,10 +201,11 @@ type Configuration struct {
 	Schema string `json:"schema" yaml:"schema"`
 
 	// WorkerPoolOptions equivalent fields
-	Concurrency     int           `json:"concurrency" yaml:"concurrency"`
-	PollInterval    time.Duration `json:"poll_interval" yaml:"poll_interval"`
-	MaxPoolSize     int           `json:"max_pool_size" yaml:"max_pool_size"`
-	NoHandleSignals bool          `json:"no_handle_signals" yaml:"no_handle_signals"`
+	Concurrency          int           `json:"concurrency" yaml:"concurrency"`
+	PollInterval         time.Duration `json:"poll_interval" yaml:"poll_interval"`
+	MaxPoolSize          int           `json:"max_pool_size" yaml:"max_pool_size"`
+	NoHandleSignals      bool          `json:"no_handle_signals" yaml:"no_handle_signals"`
+	NoPreparedStatements bool          `json:"no_prepared_statements" yaml:"no_prepared_statements"`
 
 	// Database configuration
 	DatabaseURL string `json:"database_url" yaml:"database_url"`
@@ -218,10 +219,11 @@ type Configuration struct {
 // This allows backward compatibility with existing APIs
 func (c *Configuration) ToWorkerPoolOptions() WorkerPoolOptions {
 	return WorkerPoolOptions{
-		Concurrency:     c.Concurrency,
-		Schema:          c.Schema,
-		PollInterval:    c.PollInterval,
-		NoHandleSignals: c.NoHandleSignals,
+		Concurrency:          c.Concurrency,
+		Schema:               c.Schema,
+		PollInterval:         c.PollInterval,
+		NoHandleSignals:      c.NoHandleSignals,
+		NoPreparedStatements: c.NoPreparedStatements,
 		// Logger will be set separately as it's not configurable via file
 	}
 }
@@ -235,14 +237,15 @@ func LoadConfigurationWithOverrides(overrides map[string]interface{}) (*Configur
 
 	// Convert WorkerDefaults to Configuration
 	config := &Configuration{
-		Schema:              defaults.Schema,
-		Concurrency:         defaults.ConcurrentJobs,
-		PollInterval:        time.Duration(defaults.PollInterval) * time.Millisecond,
-		MaxPoolSize:         defaults.MaxPoolSize,
-		NoHandleSignals:     false, // Default value
-		DatabaseURL:         "",    // Not part of defaults
-		MaxContiguousErrors: defaults.MaxContiguousErrors,
-		JobExpiry:           4 * time.Hour, // Default value
+		Schema:               defaults.Schema,
+		Concurrency:          defaults.ConcurrentJobs,
+		PollInterval:         time.Duration(defaults.PollInterval) * time.Millisecond,
+		MaxPoolSize:          defaults.MaxPoolSize,
+		NoHandleSignals:      false, // Default value
+		NoPreparedStatements: false, // Default value
+		DatabaseURL:          "",    // Not part of defaults
+		MaxContiguousErrors:  defaults.MaxContiguousErrors,
+		JobExpiry:            4 * time.Hour, // Default value
 	}
 
 	// Apply CLI overrides (highest priority)
@@ -261,6 +264,9 @@ func LoadConfigurationWithOverrides(overrides map[string]interface{}) (*Configur
 		}
 		if noHandleSignals, ok := overrides["no_handle_signals"].(bool); ok {
 			config.NoHandleSignals = noHandleSignals
+		}
+		if noPreparedStatements, ok := overrides["no_prepared_statements"].(bool); ok {
+			config.NoPreparedStatements = noPreparedStatements
 		}
 		if databaseURL, ok := overrides["database_url"].(string); ok && databaseURL != "" {
 			config.DatabaseURL = databaseURL

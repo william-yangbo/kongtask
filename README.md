@@ -36,8 +36,10 @@ import (
 )
 
 func main() {
-    // Connect to PostgreSQL
+    // Connect to PostgreSQL (local)
     pool, err := pgxpool.New(context.Background(), "postgres://user:password@localhost/dbname")
+    // For a remote database (TLS), prefer `?ssl=true` in the connection string
+    // e.g. "postgres://user:pass@host:port/dbname?ssl=true"
     if err != nil {
         log.Fatal(err)
     }

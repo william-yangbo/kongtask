@@ -85,14 +85,15 @@ type Worker struct {
 	jobMutex  sync.RWMutex  // Protects activeJob access
 
 	// New fields for enhanced worker functionality (v0.4.0 alignment)
-	pollInterval     time.Duration // Configurable poll interval
-	contiguousErrors int           // Count of consecutive errors
-	active           bool          // Worker active status
-	activeMutex      sync.RWMutex  // Protects active status
-	releaseCh        chan struct{} // Channel for worker release signal
-	timer            *time.Timer   // Timer for polling
-	timerMutex       sync.Mutex    // Protects timer access
-	continuous       bool          // Whether worker runs continuously or once
+	pollInterval         time.Duration // Configurable poll interval
+	contiguousErrors     int           // Count of consecutive errors
+	active               bool          // Worker active status
+	activeMutex          sync.RWMutex  // Protects active status
+	releaseCh            chan struct{} // Channel for worker release signal
+	timer                *time.Timer   // Timer for polling
+	timerMutex           sync.Mutex    // Protects timer access
+	continuous           bool          // Whether worker runs continuously or once
+	noPreparedStatements bool          // Disable prepared statements for pgBouncer compatibility
 }
 
 // NewWorker creates a new worker instance
@@ -150,6 +151,13 @@ func WithContinuous(continuous bool) WorkerOption {
 	}
 }
 
+// WithNoPreparedStatements disables prepared statements for pgBouncer compatibility
+func WithNoPreparedStatements(noPreparedStatements bool) WorkerOption {
+	return func(w *Worker) {
+		w.noPreparedStatements = noPreparedStatements
+	}
+}
+
 // MakeNewWorker creates a new worker with the specified task list and options (v0.4.0 alignment)
 // This function matches the graphile-worker makeNewWorker interface
 func MakeNewWorker(
@@ -179,6 +187,10 @@ func MakeNewWorker(
 		opts = append(opts, WithWorkerID(options.WorkerID))
 	}
 
+	if options.NoPreparedStatements {
+		opts = append(opts, WithNoPreparedStatements(options.NoPreparedStatements))
+	}
+
 	// Create worker
 	w := NewWorker(pool, schema, opts...)
 
@@ -201,10 +213,11 @@ func MakeNewWorker(
 
 // WorkerOptions represents options for creating a worker (v0.4.0 alignment)
 type WorkerOptions struct {
-	PollInterval time.Duration  // How often to poll for jobs
-	WorkerID     string         // Custom worker ID
-	Logger       *logger.Logger // Custom logger
-	Continuous   bool           // Whether worker runs continuously or once (default: true)
+	PollInterval         time.Duration  // How often to poll for jobs
+	WorkerID             string         // Custom worker ID
+	Logger               *logger.Logger // Custom logger
+	Continuous           bool           // Whether worker runs continuously or once (default: true)
+	NoPreparedStatements bool           // Disable prepared statements for pgBouncer compatibility
 }
 
 // RegisterTask registers a task handler
@@ -243,7 +256,14 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	defer conn.Release()
 
 	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at FROM %s.get_job($1)", w.schema)
-	row := conn.QueryRow(ctx, query, w.workerID)
+
+	var row pgx.Row
+	if w.noPreparedStatements {
+		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
+		row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID)
+	} else {
+		row = conn.QueryRow(ctx, query, w.workerID)
+	}
 
 	var job Job
 	var id *int
@@ -308,7 +328,12 @@ func (w *Worker) CompleteJob(ctx context.Context, jobID string) error {
 	defer conn.Release()
 
 	query := fmt.Sprintf("SELECT %s.complete_job($1, $2)", w.schema)
-	_, err = conn.Exec(ctx, query, w.workerID, jobID)
+	if w.noPreparedStatements {
+		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
+		_, err = conn.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, jobID)
+	} else {
+		_, err = conn.Exec(ctx, query, w.workerID, jobID)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
@@ -325,7 +350,12 @@ func (w *Worker) FailJob(ctx context.Context, jobID string, message string) erro
 	defer conn.Release()
 
 	query := fmt.Sprintf("SELECT %s.fail_job($1, $2, $3)", w.schema)
-	_, err = conn.Exec(ctx, query, w.workerID, jobID, message)
+	if w.noPreparedStatements {
+		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
+		_, err = conn.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, jobID, message)
+	} else {
+		_, err = conn.Exec(ctx, query, w.workerID, jobID, message)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to fail job: %w", err)
 	}

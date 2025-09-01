@@ -19,15 +19,16 @@ import (
 )
 
 var (
-	cfgFile         string
-	databaseURL     string
-	schema          string
-	schemaOnly      bool
-	once            bool
-	jobs            int
-	maxPoolSize     int
-	pollInterval    int
-	noHandleSignals bool
+	cfgFile              string
+	databaseURL          string
+	schema               string
+	schemaOnly           bool
+	once                 bool
+	jobs                 int
+	maxPoolSize          int
+	pollInterval         int
+	noHandleSignals      bool
+	noPreparedStatements bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -164,6 +165,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&maxPoolSize, "max-pool-size", "m", worker.DefaultMaxPoolSize, "maximum size of the PostgreSQL pool")
 	rootCmd.Flags().IntVar(&pollInterval, "poll-interval", int(worker.DefaultPollInterval.Milliseconds()), "how long to wait between polling for jobs in milliseconds (for jobs scheduled in the future/retries)")
 	rootCmd.Flags().BoolVar(&noHandleSignals, "no-handle-signals", false, "if set, we won't install signal handlers and it'll be up to you to handle graceful shutdown")
+	rootCmd.Flags().BoolVar(&noPreparedStatements, "no-prepared-statements", false, "set this flag if you want to disable prepared statements, e.g. for compatibility with pgBouncer")
 
 	// Add connection alias for compatibility with graphile-worker
 	rootCmd.PersistentFlags().StringVarP(&databaseURL, "connection", "c", "", "Database connection string (alias for --database-url)")
@@ -175,6 +177,7 @@ func init() {
 	_ = viper.BindPFlag("jobs", rootCmd.Flags().Lookup("jobs"))
 	_ = viper.BindPFlag("max_pool_size", rootCmd.Flags().Lookup("max-pool-size"))
 	_ = viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("poll-interval"))
+	_ = viper.BindPFlag("no_prepared_statements", rootCmd.Flags().Lookup("no-prepared-statements"))
 
 	// Add subcommands
 	rootCmd.AddCommand(migrateCmd)
@@ -500,6 +503,9 @@ func runTaskListPool() error {
 	}
 	if pollInterval > 0 {
 		cliOverrides["poll_interval"] = time.Duration(pollInterval) * time.Millisecond
+	}
+	if noPreparedStatements {
+		cliOverrides["no_prepared_statements"] = noPreparedStatements
 	}
 
 	// Load configuration with priority system
