@@ -1,6 +1,10 @@
 package worker
 
-import "time"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 // Configuration constants matching graphile-worker config.ts
 // These ensure 100% compatibility with the TypeScript implementation
@@ -35,6 +39,49 @@ func DefaultConfig() Config {
 		ConcurrentJobs:      ConcurrentJobs,      // 1
 		MaxContiguousErrors: MaxContiguousErrors, // 10 (from worker.go)
 		MaxPoolSize:         DefaultMaxPoolSize,  // 10
-		Schema:              DefaultSchema,       // "graphile_worker"
+		Schema:              getSchemaFromEnv(),  // "graphile_worker" or from env
 	}
+}
+
+// getSchemaFromEnv returns the schema name from environment variable or default
+// This aligns with graphile-worker commit 5e455c0 behavior
+func getSchemaFromEnv() string {
+	if schema := os.Getenv("GRAPHILE_WORKER_SCHEMA"); schema != "" {
+		return schema
+	}
+	return DefaultSchema
+}
+
+// applyDefaultOptions applies default values to WorkerPoolOptions
+// This ensures consistency with graphile-worker behavior
+func applyDefaultOptions(options *WorkerPoolOptions) {
+	if options.Schema == "" {
+		options.Schema = getSchemaFromEnv()
+	}
+	if options.PollInterval == 0 {
+		options.PollInterval = DefaultPollInterval
+	}
+	if options.Concurrency == 0 {
+		options.Concurrency = ConcurrentJobs
+	}
+}
+
+// getEnvInt returns an integer from environment variable or default value
+func getEnvInt(key string, defaultValue int) int {
+	if val := os.Getenv(key); val != "" {
+		if intVal, err := strconv.Atoi(val); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+// getEnvDuration returns a duration from environment variable or default value
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if duration, err := time.ParseDuration(val); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
 }

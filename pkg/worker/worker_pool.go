@@ -70,16 +70,9 @@ func RunTaskList(ctx context.Context, tasks map[string]TaskHandler, pool *pgxpoo
 		return nil, fmt.Errorf("tasks map cannot be nil")
 	}
 
-	// Set defaults
-	if options.Concurrency <= 0 {
-		options.Concurrency = ConcurrentJobs
-	}
-	if options.Schema == "" {
-		options.Schema = DefaultSchema
-	}
-	if options.PollInterval <= 0 {
-		options.PollInterval = DefaultPollInterval
-	}
+	// Apply default options with environment variable support
+	applyDefaultOptions(&options)
+
 	if options.Logger == nil {
 		options.Logger = logger.DefaultLogger
 	}

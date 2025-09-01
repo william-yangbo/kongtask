@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -35,7 +36,12 @@ type MigrationInfo struct {
 // NewMigrator creates a new migrator instance
 func NewMigrator(pool *pgxpool.Pool, schema string) *Migrator {
 	if schema == "" {
-		schema = "graphile_worker"
+		// Use environment variable or default
+		if envSchema := os.Getenv("GRAPHILE_WORKER_SCHEMA"); envSchema != "" {
+			schema = envSchema
+		} else {
+			schema = "graphile_worker"
+		}
 	}
 	return &Migrator{
 		pool:   pool,
