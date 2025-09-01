@@ -526,7 +526,7 @@ func runTaskListPool() error {
 		schemaName, options.Concurrency, pollDuration, maxPool)
 
 	// Start worker pool with signal handling (mirrors TypeScript runTaskList exactly)
-	workerPool, err := worker.RunTaskListWithSignalHandling(ctx, tasks, pool, options)
+	workerPool, err := worker.RunTaskListWithSignalHandling(ctx, options, tasks, pool)
 	if err != nil {
 		return fmt.Errorf("failed to start worker pool: %w", err)
 	}

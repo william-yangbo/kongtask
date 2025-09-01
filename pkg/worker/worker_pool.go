@@ -61,7 +61,8 @@ type WorkerPool struct {
 }
 
 // RunTaskList creates and starts a worker pool (equivalent to graphile-worker runTaskList)
-func RunTaskList(ctx context.Context, tasks map[string]TaskHandler, pool *pgxpool.Pool, options WorkerPoolOptions) (*WorkerPool, error) {
+// API signature updated to match graphile-worker commit 5e455c0: options-first parameter order
+func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[string]TaskHandler, pool *pgxpool.Pool) (*WorkerPool, error) {
 	// Validate required parameters
 	if pool == nil {
 		return nil, fmt.Errorf("database pool cannot be nil")

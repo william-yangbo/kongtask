@@ -227,7 +227,7 @@ func (mwp *ManagedWorkerPool) GracefulShutdown(message string) error {
 
 // RunTaskListWithSignalHandling creates and starts a worker pool with global signal handling
 // This is the main entry point that mirrors TypeScript runTaskList exactly
-func RunTaskListWithSignalHandling(ctx context.Context, tasks map[string]TaskHandler, pool *pgxpool.Pool, options WorkerPoolOptions) (*ManagedWorkerPool, error) {
+func RunTaskListWithSignalHandling(ctx context.Context, options WorkerPoolOptions, tasks map[string]TaskHandler, pool *pgxpool.Pool) (*ManagedWorkerPool, error) {
 	// Set up global signal handlers only if not disabled (v0.5.0 feature)
 	if !options.NoHandleSignals {
 		if err := registerSignalHandlers(options.Logger); err != nil {
@@ -236,7 +236,7 @@ func RunTaskListWithSignalHandling(ctx context.Context, tasks map[string]TaskHan
 	}
 
 	// Create worker pool using existing RunTaskList
-	wp, err := RunTaskList(ctx, tasks, pool, options)
+	wp, err := RunTaskList(ctx, options, tasks, pool)
 	if err != nil {
 		return nil, err
 	}
