@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
@@ -58,11 +59,12 @@ type WorkerSharedOptions struct {
 // SharedOptions contains common options for pools, workers, and utils
 // This mirrors the TypeScript SharedOptions interface
 type SharedOptions struct {
-	Logger               *logger.Logger `json:"logger,omitempty"`               // How should messages be logged
-	Schema               *string        `json:"schema,omitempty"`               // PostgreSQL schema to use
-	ConnectionString     *string        `json:"connectionString,omitempty"`     // PostgreSQL connection string
-	MaxPoolSize          *int           `json:"maxPoolSize,omitempty"`          // Maximum size of PostgreSQL pool
-	NoPreparedStatements *bool          `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
+	Logger               *logger.Logger   `json:"logger,omitempty"`               // How should messages be logged
+	Schema               *string          `json:"schema,omitempty"`               // PostgreSQL schema to use
+	ConnectionString     *string          `json:"connectionString,omitempty"`     // PostgreSQL connection string
+	MaxPoolSize          *int             `json:"maxPoolSize,omitempty"`          // Maximum size of PostgreSQL pool
+	NoPreparedStatements *bool            `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
+	Events               *events.EventBus `json:"-"`                              // EventBus for worker events (v0.4.0 alignment)
 }
 
 // WorkerInterface represents a job worker

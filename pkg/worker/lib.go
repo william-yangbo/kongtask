@@ -8,12 +8,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
 // CompiledSharedOptions represents processed shared options with compiled values
 // This mirrors graphile-worker's CompiledSharedOptions interface
 type CompiledSharedOptions struct {
+	Events              *events.EventBus `json:"-"`
 	Logger              *logger.Logger
 	WorkerSchema        string
 	EscapedWorkerSchema string
@@ -38,13 +40,15 @@ var (
 // generateCacheKey creates a unique cache key for the given options
 func generateCacheKey(options *WorkerPoolOptions) string {
 	hasPgPool := options.PgPool != nil
-	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d|hasPgPool:%t",
+	hasEvents := options.Events != nil
+	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d|hasPgPool:%t|hasEvents:%t",
 		options.Schema,
 		options.Concurrency,
 		options.PollInterval,
 		options.MaxPoolSize,
 		options.MaxContiguousErrors,
 		hasPgPool,
+		hasEvents,
 	)
 }
 
@@ -71,6 +75,7 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 		// If scope is requested, return a new logger with scope
 		if settings.Scope != nil {
 			return &CompiledSharedOptions{
+				Events:              cached.Events,
 				Logger:              cached.Logger.Scope(*settings.Scope),
 				WorkerSchema:        cached.WorkerSchema,
 				EscapedWorkerSchema: cached.EscapedWorkerSchema,
@@ -84,8 +89,15 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 	}
 	sharedOptionsCacheMutex.RUnlock()
 
+	// Process Events field - create default EventBus if not provided
+	eventBus := options.Events
+	if eventBus == nil {
+		eventBus = events.NewEventBus(context.Background(), 100) // Default buffer size
+	}
+
 	// Compile new options
 	compiled := &CompiledSharedOptions{
+		Events:              eventBus,
 		Logger:              options.Logger,
 		WorkerSchema:        options.Schema,
 		EscapedWorkerSchema: fmt.Sprintf("\"%s\"", options.Schema), // Simple escaping for now
@@ -103,6 +115,7 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 	// Apply scope if requested
 	if settings.Scope != nil {
 		return &CompiledSharedOptions{
+			Events:              compiled.Events,
 			Logger:              compiled.Logger.Scope(*settings.Scope),
 			WorkerSchema:        compiled.WorkerSchema,
 			EscapedWorkerSchema: compiled.EscapedWorkerSchema,

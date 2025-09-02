@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/pkg/events"
+	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
 
@@ -22,6 +23,9 @@ func (r *Runner) Stop() error {
 	}
 
 	r.stopped = true
+
+	// Emit stop event (v0.4.0 alignment)
+	r.events.Emit("stop", map[string]interface{}{})
 
 	// Signal stop
 	close(r.stopCh)
@@ -50,6 +54,11 @@ func (r *Runner) AddJob(taskName string, payload interface{}) error {
 // Promise returns a channel that signals when the runner completes (v0.4.0 alignment)
 func (r *Runner) Promise() <-chan error {
 	return r.completeCh
+}
+
+// Events returns the EventBus for listening to runner events (v0.4.0 alignment)
+func (r *Runner) Events() *events.EventBus {
+	return r.events
 }
 
 // IsRunning returns whether the runner is currently running
@@ -126,10 +135,19 @@ func Run(options RunnerOptions) (*Runner, error) {
 		return nil, err
 	}
 
+	// Create or use provided EventBus for runner events
+	var eventBus *events.EventBus
+	if options.Events != nil {
+		eventBus = options.Events
+	} else {
+		eventBus = events.NewEventBus(context.Background(), 100)
+	}
+
 	// Create worker
 	workerOpts := []worker.WorkerOption{
 		worker.WithLogger(processed.logger),
 		worker.WithPollInterval(processed.options.PollInterval),
+		worker.WithEventBus(eventBus), // Pass EventBus to worker
 	}
 	if processed.options.WorkerID != "" {
 		workerOpts = append(workerOpts, worker.WithWorkerID(processed.options.WorkerID))
@@ -151,6 +169,7 @@ func Run(options RunnerOptions) (*Runner, error) {
 		stopCh:     make(chan struct{}),
 		completeCh: make(chan error, 1),
 		releasers:  make([]ReleaseFunc, 0),
+		events:     eventBus, // Set EventBus
 	}
 
 	// Add releasers

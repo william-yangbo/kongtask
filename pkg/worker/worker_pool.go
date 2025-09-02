@@ -9,21 +9,23 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
 // WorkerPoolOptions represents options for worker pool
 type WorkerPoolOptions struct {
-	Concurrency          int            // Number of concurrent workers
-	Schema               string         // Database schema (default: "graphile_worker")
-	PollInterval         time.Duration  // Polling interval (default: 1s)
-	Logger               *logger.Logger // Logger instance
-	NoHandleSignals      bool           // If set true, we won't install signal handlers (v0.5.0 feature)
-	MaxPoolSize          int            // Maximum database connection pool size
-	MaxContiguousErrors  int            // Maximum contiguous errors before worker stops
-	DatabaseURL          string         // Database connection URL
-	PgPool               *pgxpool.Pool  // Existing database pool (alternative to DatabaseURL)
-	NoPreparedStatements bool           // If set true, disable prepared statements for pgBouncer compatibility
+	Concurrency          int              // Number of concurrent workers
+	Schema               string           // Database schema (default: "graphile_worker")
+	PollInterval         time.Duration    // Polling interval (default: 1s)
+	Logger               *logger.Logger   // Logger instance
+	NoHandleSignals      bool             // If set true, we won't install signal handlers (v0.5.0 feature)
+	MaxPoolSize          int              // Maximum database connection pool size
+	MaxContiguousErrors  int              // Maximum contiguous errors before worker stops
+	DatabaseURL          string           // Database connection URL
+	PgPool               *pgxpool.Pool    // Existing database pool (alternative to DatabaseURL)
+	NoPreparedStatements bool             // If set true, disable prepared statements for pgBouncer compatibility
+	Events               *events.EventBus // EventBus for worker events (lib.ts alignment)
 }
 
 // generatePoolID generates a cryptographically secure random pool identifier
@@ -42,12 +44,13 @@ func generatePoolID() string {
 
 // WorkerPool represents a pool of workers with graceful shutdown
 type WorkerPool struct {
-	workers []*Worker
-	pool    *pgxpool.Pool
-	schema  string
-	tasks   map[string]TaskHandler
-	options WorkerPoolOptions
-	logger  *logger.Logger
+	workers  []*Worker
+	pool     *pgxpool.Pool
+	schema   string
+	tasks    map[string]TaskHandler
+	options  WorkerPoolOptions
+	logger   *logger.Logger
+	eventBus *events.EventBus // Event bus for emitting pool events (main.ts alignment)
 
 	// Lifecycle management
 	ctx          context.Context
@@ -83,6 +86,10 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 		options.Logger = logger.DefaultLogger
 	}
 
+	// Get EventBus from shared options processing (main.ts alignment)
+	compiled := ProcessSharedOptions(&options, nil)
+	eventBus := compiled.Events
+
 	// Create pool context
 	poolCtx, poolCancel := context.WithCancel(ctx)
 
@@ -92,11 +99,17 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 		tasks:            tasks,
 		options:          options,
 		logger:           options.Logger,
+		eventBus:         eventBus,
 		ctx:              poolCtx,
 		cancel:           poolCancel,
 		nudgeChannel:     make(chan struct{}, options.Concurrency*2),
 		shutdownComplete: make(chan struct{}),
 	}
+
+	// Emit pool:create event (main.ts alignment)
+	eventBus.Emit(events.PoolCreate, map[string]interface{}{
+		"workerPool": wp,
+	})
 
 	// Create workers
 	poolID := generatePoolID() // Generate unique pool identifier
@@ -105,6 +118,9 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 		// Use pool ID + worker index for unique worker identification
 		// This maintains worker uniqueness while using secure random generation
 		worker.workerID = fmt.Sprintf("worker-%s-%d", poolID, i)
+
+		// Pass eventBus to worker for event emission
+		worker.eventBus = eventBus
 
 		// Register all tasks
 		for taskName, handler := range tasks {
@@ -139,8 +155,18 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 func (wp *WorkerPool) startNotificationListener() error {
 	wp.notifyCtx, wp.notifyCancel = context.WithCancel(wp.ctx)
 
+	// Emit pool:listen:connecting event (main.ts alignment)
+	wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
+		"workerPool": wp,
+	})
+
 	conn, err := wp.pool.Acquire(wp.notifyCtx)
 	if err != nil {
+		// Emit pool:listen:error event (main.ts alignment)
+		wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
+			"workerPool": wp,
+			"error":      err,
+		})
 		return fmt.Errorf("failed to acquire connection for notifications: %w", err)
 	}
 	wp.notifyConn = conn
@@ -148,9 +174,19 @@ func (wp *WorkerPool) startNotificationListener() error {
 	// Start listening for job insertions
 	_, err = conn.Exec(wp.notifyCtx, `LISTEN "jobs:insert"`)
 	if err != nil {
+		// Emit pool:listen:error event (main.ts alignment)
+		wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
+			"workerPool": wp,
+			"error":      err,
+		})
 		conn.Release()
 		return fmt.Errorf("failed to listen for notifications: %w", err)
 	}
+
+	// Emit pool:listen:success event (main.ts alignment)
+	wp.eventBus.Emit(events.PoolListenSuccess, map[string]interface{}{
+		"workerPool": wp,
+	})
 
 	// Start notification handler
 	wp.wg.Add(1)
@@ -179,8 +215,20 @@ func (wp *WorkerPool) handleNotifications() {
 				if wp.notifyCtx.Err() != nil {
 					return // Context cancelled
 				}
+
+				// Emit pool:listen:error event (main.ts alignment)
+				wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
+					"workerPool": wp,
+					"error":      err,
+				})
+
 				wp.logger.Error(fmt.Sprintf("Notification error: %v", err))
 				time.Sleep(5 * time.Second) // Retry after error
+
+				// Emit pool:listen:connecting event for reconnection (main.ts alignment)
+				wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
+					"workerPool": wp,
+				})
 				continue
 			}
 
@@ -288,6 +336,10 @@ func (wp *WorkerPool) processAvailableJobs(worker *Worker) error {
 
 // Release gracefully shuts down the worker pool
 func (wp *WorkerPool) Release() error {
+	// Emit pool:release event (main.ts alignment)
+	wp.eventBus.Emit(events.PoolRelease, map[string]interface{}{
+		"pool": wp,
+	})
 	return wp.GracefulShutdown("Worker pool release requested")
 }
 
@@ -296,6 +348,12 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 	var shutdownErr error
 
 	wp.shutdownOnce.Do(func() {
+		// Emit pool:gracefulShutdown event (main.ts alignment)
+		wp.eventBus.Emit(events.PoolGracefulShutdown, map[string]interface{}{
+			"pool":    wp,
+			"message": message,
+		})
+
 		wp.logger.Info(fmt.Sprintf("Starting graceful shutdown: %s", message))
 
 		// Cancel notification listener first
@@ -319,10 +377,23 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 		case <-time.After(30 * time.Second):
 			shutdownErr = fmt.Errorf("graceful shutdown timeout")
 			wp.logger.Error("Graceful shutdown timeout reached")
+			// Emit pool:gracefulShutdown:error event (main.ts alignment)
+			wp.eventBus.Emit(events.PoolShutdownError, map[string]interface{}{
+				"pool":  wp,
+				"error": shutdownErr,
+			})
 		}
 
 		close(wp.shutdownComplete)
 	})
+
+	// If there was an error during shutdown, emit error event
+	if shutdownErr != nil {
+		wp.eventBus.Emit(events.PoolShutdownError, map[string]interface{}{
+			"pool":  wp,
+			"error": shutdownErr,
+		})
+	}
 
 	return shutdownErr
 }

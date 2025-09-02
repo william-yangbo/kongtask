@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
@@ -32,6 +33,9 @@ type RunnerOptions struct {
 	// Advanced options
 	PollInterval time.Duration
 	WorkerID     string
+
+	// Event system (v0.4.0 alignment)
+	Events *events.EventBus
 }
 
 // Runner represents a running job processor (v0.4.0 alignment)
@@ -44,6 +48,7 @@ type Runner struct {
 	stopCh     chan struct{}
 	completeCh chan error
 	releasers  []ReleaseFunc
+	events     *events.EventBus // Events emitter for runner events
 }
 
 // ReleaseFunc is a function that releases resources

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
@@ -86,9 +87,10 @@ type Worker struct {
 	handlers  map[string]TaskHandler
 	workerID  string
 	logger    *logger.Logger
-	nudgeCh   chan struct{} // Channel for nudging the worker
-	activeJob *Job          // Currently active job (for graceful shutdown)
-	jobMutex  sync.RWMutex  // Protects activeJob access
+	eventBus  *events.EventBus // Event bus for emitting worker events
+	nudgeCh   chan struct{}    // Channel for nudging the worker
+	activeJob *Job             // Currently active job (for graceful shutdown)
+	jobMutex  sync.RWMutex     // Protects activeJob access
 
 	// New fields for enhanced worker functionality (v0.4.0 alignment)
 	pollInterval         time.Duration    // Configurable poll interval
@@ -180,6 +182,13 @@ func WithForbiddenFlagsFn(fn ForbiddenFlagsFn) WorkerOption {
 	}
 }
 
+// WithEventBus sets the event bus for the worker
+func WithEventBus(eventBus *events.EventBus) WorkerOption {
+	return func(w *Worker) {
+		w.eventBus = eventBus
+	}
+}
+
 // MakeNewWorker creates a new worker with the specified task list and options (v0.4.0 alignment)
 // This function matches the graphile-worker makeNewWorker interface
 func MakeNewWorker(
@@ -254,7 +263,24 @@ type WorkerOptions struct {
 
 // RegisterTask registers a task handler
 func (w *Worker) RegisterTask(taskIdentifier string, handler TaskHandler) {
+	isFirstTask := len(w.handlers) == 0
 	w.handlers[taskIdentifier] = handler
+
+	// Emit worker:create event when first task is registered
+	if isFirstTask && w.eventBus != nil {
+		// Create task list for the event
+		tasks := make(map[string]interface{})
+		for taskName := range w.handlers {
+			tasks[taskName] = true // Just indicate presence of task
+		}
+
+		w.eventBus.Emit(events.WorkerCreate, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+			"tasks": tasks,
+		})
+	}
 }
 
 // AddJob adds a job to the queue (corresponds to graphile-worker add_job)
@@ -347,13 +373,38 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			// Emit worker:getJob:empty event
+			if w.eventBus != nil {
+				w.eventBus.Emit(events.WorkerGetJobEmpty, map[string]interface{}{
+					"worker": map[string]interface{}{
+						"workerId": w.workerID,
+					},
+				})
+			}
 			return nil, nil // No jobs available
+		}
+		// Emit worker:getJob:error event
+		if w.eventBus != nil {
+			w.eventBus.Emit(events.WorkerGetJobError, map[string]interface{}{
+				"worker": map[string]interface{}{
+					"workerId": w.workerID,
+				},
+				"error": err.Error(),
+			})
 		}
 		return nil, fmt.Errorf("failed to scan job: %w", err)
 	}
 
 	// Check if the result is NULL (no job available)
 	if id == nil {
+		// Emit worker:getJob:empty event
+		if w.eventBus != nil {
+			w.eventBus.Emit(events.WorkerGetJobEmpty, map[string]interface{}{
+				"worker": map[string]interface{}{
+					"workerId": w.workerID,
+				},
+			})
+		}
 		return nil, nil
 	}
 
@@ -444,6 +495,25 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 	w.setActiveJob(job)
 	defer w.clearActiveJob()
 
+	// Emit job:start event
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.JobStart, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+			"job": map[string]interface{}{
+				"id":             job.ID,
+				"taskIdentifier": job.TaskIdentifier,
+				"attempts":       job.AttemptCount,
+				"max_attempts":   job.MaxAttempts,
+				"queue_name":     job.QueueName,
+				"priority":       job.Priority,
+				"run_at":         job.RunAt,
+				"created_at":     job.CreatedAt,
+			},
+		})
+	}
+
 	// Create scoped logger for this job
 	jobLogger := w.logger.Scope(logger.LogScope{
 		WorkerID:       w.workerID,
@@ -467,12 +537,62 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 	durationMs := float64(duration.Nanoseconds()) / 1e6
 
 	if err != nil {
+		// Emit job:error event
+		if w.eventBus != nil {
+			w.eventBus.Emit(events.JobError, map[string]interface{}{
+				"worker": map[string]interface{}{
+					"workerId": w.workerID,
+				},
+				"job": map[string]interface{}{
+					"id":             job.ID,
+					"taskIdentifier": job.TaskIdentifier,
+					"attempts":       job.AttemptCount,
+					"max_attempts":   job.MaxAttempts,
+				},
+				"error":       err.Error(),
+				"duration_ms": durationMs,
+			})
+
+			// Emit job:failed event if this was the final attempt
+			if job.AttemptCount >= job.MaxAttempts {
+				w.eventBus.Emit(events.JobFailed, map[string]interface{}{
+					"worker": map[string]interface{}{
+						"workerId": w.workerID,
+					},
+					"job": map[string]interface{}{
+						"id":             job.ID,
+						"taskIdentifier": job.TaskIdentifier,
+						"attempts":       job.AttemptCount,
+						"max_attempts":   job.MaxAttempts,
+					},
+					"error":       err.Error(),
+					"duration_ms": durationMs,
+				})
+			}
+		}
+
 		jobLogger.Error(fmt.Sprintf("Job %s failed: %v (%.2fms)", job.ID, err, durationMs))
 		if failErr := w.FailJob(ctx, job.ID, err.Error()); failErr != nil {
 			jobLogger.Error(fmt.Sprintf("Failed to mark job %s as failed: %v", job.ID, failErr))
 			return fmt.Errorf("failed to release job '%s' after failure '%s': %w", job.ID, err.Error(), failErr)
 		}
 		return err
+	}
+
+	// Emit job:success event
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.JobSuccess, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+			"job": map[string]interface{}{
+				"id":             job.ID,
+				"taskIdentifier": job.TaskIdentifier,
+				"attempts":       job.AttemptCount,
+				"max_attempts":   job.MaxAttempts,
+			},
+			"duration_ms": durationMs,
+		})
 	}
 
 	jobLogger.Info(fmt.Sprintf("Job %s completed successfully (%.2fms)", job.ID, durationMs))
@@ -520,6 +640,17 @@ func (w *Worker) Run(ctx context.Context) error {
 			workerLogger.Error(fmt.Sprintf("Failed to process job: %v (%d/%d)", err, w.contiguousErrors, MaxContiguousErrors))
 
 			if w.contiguousErrors >= MaxContiguousErrors {
+				// Emit worker:fatalError event
+				if w.eventBus != nil {
+					w.eventBus.Emit(events.WorkerFatalError, map[string]interface{}{
+						"worker": map[string]interface{}{
+							"workerId": w.workerID,
+						},
+						"error":    err.Error(),
+						"jobError": nil, // No specific job error in this case
+					})
+				}
+
 				w.Release()
 				return fmt.Errorf("failed %d times in a row to acquire job; latest error: %w", w.contiguousErrors, err)
 			}
@@ -675,6 +806,15 @@ func (w *Worker) Release() {
 		return
 	}
 
+	// Emit worker:release event
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.WorkerRelease, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+		})
+	}
+
 	w.setActive(false)
 
 	// Cancel any running timer
@@ -685,6 +825,15 @@ func (w *Worker) Release() {
 	case w.releaseCh <- struct{}{}:
 	default:
 		// Channel already has a signal or is closed
+	}
+
+	// Emit worker:stop event
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.WorkerStop, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+		})
 	}
 }
 
