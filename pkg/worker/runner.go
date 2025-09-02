@@ -40,18 +40,13 @@ func RunOnce(ctx context.Context, options RunnerOptions) error {
 	hasConnectionString := options.ConnectionString != ""
 	hasPgPool := options.PgPool != nil
 	hasDatabaseURL := os.Getenv("DATABASE_URL") != ""
+	hasPgDatabase := os.Getenv("PGDATABASE") != ""
 
-	if !hasConnectionString && !hasPgPool && !hasDatabaseURL {
-		return fmt.Errorf("you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
+	if !hasConnectionString && !hasPgPool && !hasDatabaseURL && !hasPgDatabase {
+		return fmt.Errorf("you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` or `PG*` environmental variables available")
 	}
 	if hasConnectionString && hasPgPool {
 		return fmt.Errorf("both `pgPool` and `connectionString` are set, at most one of these options should be provided")
-	}
-
-	// Determine connection string
-	connectionString := options.ConnectionString
-	if connectionString == "" && hasDatabaseURL {
-		connectionString = os.Getenv("DATABASE_URL")
 	}
 
 	// Get or create database pool
@@ -61,7 +56,7 @@ func RunOnce(ctx context.Context, options RunnerOptions) error {
 		pool = options.PgPool
 	} else {
 		var err error
-		pool, err = pgxpool.New(ctx, connectionString)
+		pool, err = createDatabasePool(ctx, options.ConnectionString)
 		if err != nil {
 			return fmt.Errorf("failed to create database pool: %w", err)
 		}

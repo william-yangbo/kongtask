@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -43,7 +44,7 @@ func TestRunOnceValidationParity(t *testing.T) {
 		options := worker.RunnerOptions{
 			TaskList: map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
 		}
-		runOnceErrorAssertion(t, options, "you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` environmental variable available")
+		runOnceErrorAssertion(t, options, "you must either specify `pgPool` or `connectionString`, or you must make the `DATABASE_URL` or `PG*` environmental variables available")
 	})
 
 	t.Run("connection string and pgPool are mutually exclusive", func(t *testing.T) {
@@ -126,6 +127,58 @@ func TestRunOnceConnectionParity(t *testing.T) {
 
 		err = worker.RunOnce(ctx, options)
 		require.NoError(t, err, "Should work with just pgPool")
+	})
+
+	t.Run("works with PG* environment variables", func(t *testing.T) {
+		_, pool := testutil.StartPostgres(t)
+		ctx := context.Background()
+
+		// Reset and migrate database
+		testutil.Reset(t, pool, "graphile_worker")
+		migrator := migrate.NewMigrator(pool, "graphile_worker")
+		err := migrator.Migrate(ctx)
+		require.NoError(t, err)
+
+		// Extract connection parameters from pool
+		config := pool.Config()
+		host := config.ConnConfig.Host
+		port := config.ConnConfig.Port
+		database := config.ConnConfig.Database
+		user := config.ConnConfig.User
+		password := config.ConnConfig.Password
+
+		// Set PG* environment variables
+		originalEnvs := map[string]string{
+			"PGHOST":       os.Getenv("PGHOST"),
+			"PGPORT":       os.Getenv("PGPORT"),
+			"PGDATABASE":   os.Getenv("PGDATABASE"),
+			"PGUSER":       os.Getenv("PGUSER"),
+			"PGPASSWORD":   os.Getenv("PGPASSWORD"),
+			"DATABASE_URL": os.Getenv("DATABASE_URL"),
+		}
+		defer func() {
+			for key, val := range originalEnvs {
+				if val == "" {
+					_ = os.Unsetenv(key)
+				} else {
+					_ = os.Setenv(key, val)
+				}
+			}
+		}()
+
+		_ = os.Setenv("PGHOST", host)
+		_ = os.Setenv("PGPORT", fmt.Sprintf("%d", port))
+		_ = os.Setenv("PGDATABASE", database)
+		_ = os.Setenv("PGUSER", user)
+		_ = os.Setenv("PGPASSWORD", password)
+		_ = os.Unsetenv("DATABASE_URL") // Remove DATABASE_URL to force PG* usage
+
+		options := worker.RunnerOptions{
+			TaskList: map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
+		}
+
+		err = worker.RunOnce(ctx, options)
+		require.NoError(t, err, "Should work with PG* environment variables")
 	})
 }
 

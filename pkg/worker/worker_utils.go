@@ -59,15 +59,13 @@ func MakeWorkerUtils(ctx context.Context, options WorkerUtilsOptions) (*WorkerUt
 	if options.PgPool != nil {
 		pool = options.PgPool
 		ownedPool = false
-	} else if options.ConnectionString != "" {
+	} else {
 		var err error
-		pool, err = pgxpool.New(ctx, options.ConnectionString)
+		pool, err = createDatabasePool(ctx, options.ConnectionString)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create connection pool: %w", err)
 		}
 		ownedPool = true
-	} else {
-		return nil, fmt.Errorf("either PgPool or ConnectionString must be provided")
 	}
 
 	// Auto-migrate like graphile-worker does

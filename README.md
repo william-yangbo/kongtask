@@ -83,6 +83,46 @@ func main() {
 }
 ```
 
+## Database Configuration
+
+KongTask supports multiple ways to configure your PostgreSQL database connection (in order of priority):
+
+1. **Direct connection string** (in your Go code)
+2. **`DATABASE_URL` environment variable**
+3. **PostgreSQL standard environment variables** (`PG*` envvars)
+
+### Using Environment Variables
+
+#### DATABASE_URL
+
+```bash
+export DATABASE_URL="postgres://user:password@localhost/dbname"
+./kongtask worker
+```
+
+#### PostgreSQL Standard Environment Variables
+
+```bash
+export PGHOST=localhost
+export PGPORT=5432
+export PGDATABASE=kongtask_dev
+export PGUSER=myuser
+export PGPASSWORD=mypassword
+./kongtask worker
+```
+
+### Command Line Options
+
+```bash
+# Using connection flag
+./kongtask worker --connection "postgres://user:password@localhost/dbname"
+
+# Using database-url flag
+./kongtask worker --database-url "postgres://user:password@localhost/dbname"
+```
+
+> **Note**: When using PostgreSQL environment variables, at least `PGDATABASE` must be set. Other variables will use PostgreSQL defaults if not specified.
+
 ## Development
 
 ### Prerequisites

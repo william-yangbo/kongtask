@@ -225,8 +225,8 @@ func runMigrate() error {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
-	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
 	schemaName := viper.GetString("schema")
@@ -235,7 +235,15 @@ func runMigrate() error {
 	}
 
 	// Create connection pool
-	pool, err := pgxpool.New(ctx, dbURL)
+	var pool *pgxpool.Pool
+	var err error
+
+	if dbURL != "" {
+		pool, err = pgxpool.New(ctx, dbURL)
+	} else {
+		// Use PG* environment variables
+		pool, err = pgxpool.New(ctx, "")
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -272,8 +280,8 @@ func runWorker() error {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
-	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
 	schemaName := viper.GetString("schema")
