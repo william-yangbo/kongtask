@@ -1,19 +1,31 @@
 # KongTask
 
-KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.5.0. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
+KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.8.1. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
 
-> **Compatibility Status**: Core features aligned with graphile-worker v0.5.0. Some TypeScript-specific features are not supported (see limitations below).
+> **Compatibility Status**: Core features aligned with graphile-worker v0.8.1. Some TypeScript-specific features are not supported (see limitations below).
 
 ## Features
 
 - 🚀 **High Performance**: Process 1,700+ jobs per second
 - 🔒 **Reliable**: PostgreSQL-backed job persistence and ACID guarantees
-- 🎯 **Compatible**: Core API compatibility with graphile-worker v0.5.0 (see limitations below)
+- 🎯 **Compatible**: Core API compatibility with graphile-worker v0.8.1 (see limitations below)
 - 🔧 **Flexible**: Support for job scheduling, retries, and custom task handlers
 - 🛡️ **Secure**: Cryptographically secure worker ID generation
 - 📊 **Observable**: Comprehensive logging and metrics support
 - 🏷️ **Forbidden Flags**: Runtime job filtering for complex rate limiting and selective processing
 - 🔀 **Task De-duplication**: Via unique `job_key` for preventing duplicate work
+- ⚡ **Optimized Indexing**: Enhanced database performance with partial indexes (v0.8.1 features)
+
+## Recent Updates (v0.8.1 Alignment)
+
+KongTask has been updated to align with graphile-worker v0.8.1, bringing significant performance improvements:
+
+- 🚀 **Enhanced Database Performance**: New optimized index `jobs_priority_run_at_id_locked_at_without_failures_idx` with partial indexing
+- 📊 **Reduced Index Size**: Partial indexes exclude failed jobs (`attempts < max_attempts`) for better performance
+- 🔧 **Migration 000006**: Automatically applied database schema updates for performance optimization
+- 🔗 **Full Compatibility**: Maintains backward compatibility while adding latest performance enhancements
+
+The performance improvements are particularly beneficial for high-throughput scenarios and large job queues.
 
 ## Quick Start
 
@@ -60,7 +72,7 @@ func main() {
     workerPool, err := worker.RunTaskList(ctx, tasks, pool, worker.WorkerPoolOptions{
         Concurrency:     4,
         Schema:          "graphile_worker",
-        // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc (v0.5.0 feature)
+        // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc (v0.5.0+ feature)
         NoHandleSignals: false,
     })
     if err != nil {
@@ -235,14 +247,15 @@ KongTask is built with several key components:
 
 ## Compatibility
 
-KongTask provides core API compatibility with graphile-worker v0.5.0:
+KongTask provides core API compatibility with graphile-worker v0.8.1:
 
 ### ✅ **Supported Features**
 
-- ✅ **Database Schema**: Complete SQL migration alignment (000001-000005)
+- ✅ **Database Schema**: Complete SQL migration alignment (000001-000006)
+- ✅ **Performance Optimizations**: Enhanced database indexes with partial indexing (v0.8.1 features)
 - ✅ **Job Queue Operations**: add_job, get_job, complete_job, fail_job functions
 - ✅ **Admin Functions**: completeJobs, permanentlyFailJobs, rescheduleJobs (v0.4.0+ features)
-- ✅ **Signal Handling Control**: NoHandleSignals option for custom signal management (v0.5.0 feature)
+- ✅ **Signal Handling Control**: NoHandleSignals option for custom signal management (v0.5.0+ features)
 - ✅ **Task Scheduling**: Job scheduling, retry logic, and priority support
 - ✅ **Forbidden Flags**: Runtime job filtering for complex rate limiting and selective processing
 - ✅ **Job Flags**: Dynamic job filtering capabilities with static and function-based configuration
@@ -268,7 +281,7 @@ tasks := map[string]worker.TaskHandler{
 }
 ```
 
-**Development Status**: Core job queue functionality fully compatible with graphile-worker v0.5.0. Language-specific features (like dynamic task loading) are implemented using Go patterns rather than direct TypeScript equivalents.
+**Development Status**: Core job queue functionality fully compatible with graphile-worker v0.8.1. Language-specific features (like dynamic task loading) are implemented using Go patterns rather than direct TypeScript equivalents.
 
 ## Contributing
 
@@ -323,6 +336,21 @@ similar technique to maintain the forbidden flags list.
 
 This feature enables complex rate limiting, maintenance mode controls, feature
 flags, and other advanced job filtering scenarios at runtime.
+
+## Changelog
+
+### v0.8.1 Alignment (September 2025)
+
+- 🚀 **Performance**: Synchronized with graphile-worker v0.8.1 performance optimizations
+- 📊 **Database**: Added migration 000006 with optimized partial indexing
+- ⚡ **Index**: Enhanced `jobs_priority_run_at_id_locked_at_without_failures_idx` for better query performance
+- 🔧 **Schema**: Updated database schema exports to reflect latest optimizations
+- ✅ **Tests**: Updated integration tests to support new migration count
+
+### Previous Versions
+
+- **v0.5.0 Compatibility**: Initial feature parity with graphile-worker core functionality
+- **Core Features**: Job queue operations, worker management, forbidden flags, and signal handling
 
 ## License
 
