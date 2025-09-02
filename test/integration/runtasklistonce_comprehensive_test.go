@@ -695,14 +695,25 @@ func TestRunTaskListOnceJobRemoval(t *testing.T) {
 		require.NoError(t, err)
 		defer conn.Release()
 
+		// Get the job ID before attempting removal
+		var jobID int64
+		err = conn.QueryRow(ctx, "SELECT id FROM graphile_worker.jobs WHERE key = $1", jobKey).Scan(&jobID)
+		require.NoError(t, err)
+
 		_, err = conn.Exec(ctx, "SELECT graphile_worker.remove_job($1)", jobKey)
 		require.NoError(t, err)
 
-		// Job should still exist (cannot be removed while in progress)
+		// Job should still exist (locked jobs can't be deleted, only have their key cleared)
 		var jobCount int
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.jobs WHERE key = $1", jobKey).Scan(&jobCount)
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.jobs WHERE id = $1", jobID).Scan(&jobCount)
 		require.NoError(t, err)
 		assert.Equal(t, 1, jobCount, "Job in progress should not be removed")
+
+		// Verify the key was cleared (this is the expected behavior for locked jobs)
+		var keyCleared bool
+		err = conn.QueryRow(ctx, "SELECT key IS NULL FROM graphile_worker.jobs WHERE id = $1", jobID).Scan(&keyCleared)
+		require.NoError(t, err)
+		assert.True(t, keyCleared, "Job key should be cleared for locked jobs")
 
 		wg.Wait()
 	})
