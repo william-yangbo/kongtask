@@ -276,23 +276,24 @@ func TestPrioritySupport(t *testing.T) {
 	utils := worker.NewWorkerUtils(pool, "graphile_worker")
 
 	// Create jobs with different priorities
-	lowPriority := 1
-	highPriority := 10
+	// Note: Lower numerical value = higher priority (executed first)
+	higherPriority := 1 // Will be executed first
+	lowerPriority := 10 // Will be executed second
 
-	lowPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "low"},
-		worker.TaskSpec{Priority: &lowPriority})
+	higherPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "higher"},
+		worker.TaskSpec{Priority: &higherPriority})
 	require.NoError(t, err)
 
-	highPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "high"},
-		worker.TaskSpec{Priority: &highPriority})
+	lowerPriorityJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "lower"},
+		worker.TaskSpec{Priority: &lowerPriority})
 	require.NoError(t, err)
 
 	// Verify priority is stored correctly
-	lowPriorityJob := mustGetJobByID(t, pool, lowPriorityJobID)
-	highPriorityJob := mustGetJobByID(t, pool, highPriorityJobID)
+	higherPriorityJob := mustGetJobByID(t, pool, higherPriorityJobID)
+	lowerPriorityJob := mustGetJobByID(t, pool, lowerPriorityJobID)
 
-	assert.Equal(t, lowPriority, lowPriorityJob.Priority)
-	assert.Equal(t, highPriority, highPriorityJob.Priority)
+	assert.Equal(t, higherPriority, higherPriorityJob.Priority)
+	assert.Equal(t, lowerPriority, lowerPriorityJob.Priority)
 
 	// Default priority should be 0
 	defaultJobID, err := utils.QuickAddJob(ctx, "test_job", map[string]interface{}{"priority": "default"})
