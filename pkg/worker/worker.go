@@ -50,6 +50,7 @@ type Job struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 	Key            *string         `json:"key"`       // New in v0.4.0: job_key support
 	Revision       *int            `json:"revision"`  // New in commit 60da79a: job revision tracking
+	Flags          map[string]bool `json:"flags"`     // New in commit fb9b249: forbidden flags support
 	LockedAt       *time.Time      `json:"locked_at"` // New in v0.4.0: task locking
 	LockedBy       *string         `json:"locked_by"` // New in v0.4.0: task locking
 }
@@ -61,6 +62,7 @@ type TaskSpec struct {
 	Priority    *int       `json:"priority,omitempty"`    // Job priority (higher number = higher priority, default: 0)
 	MaxAttempts *int       `json:"maxAttempts,omitempty"` // How many retries should this task get
 	JobKey      *string    `json:"jobKey,omitempty"`      // New in v0.4.0: unique identifier for the job
+	Flags       []string   `json:"flags,omitempty"`       // New in commit fb9b249: forbidden flags support
 }
 
 // RescheduleOptions represents options for rescheduling jobs (commit 27dee4d)
@@ -74,6 +76,9 @@ type RescheduleOptions struct {
 // TaskHandler is a function that processes a job (v0.2.0 signature with helpers)
 type TaskHandler func(ctx context.Context, payload json.RawMessage, helpers *Helpers) error
 
+// ForbiddenFlagsFn is a function that returns forbidden flags dynamically (commit fb9b249)
+type ForbiddenFlagsFn func() ([]string, error)
+
 // Worker represents a job worker
 type Worker struct {
 	pool      *pgxpool.Pool
@@ -86,15 +91,17 @@ type Worker struct {
 	jobMutex  sync.RWMutex  // Protects activeJob access
 
 	// New fields for enhanced worker functionality (v0.4.0 alignment)
-	pollInterval         time.Duration // Configurable poll interval
-	contiguousErrors     int           // Count of consecutive errors
-	active               bool          // Worker active status
-	activeMutex          sync.RWMutex  // Protects active status
-	releaseCh            chan struct{} // Channel for worker release signal
-	timer                *time.Timer   // Timer for polling
-	timerMutex           sync.Mutex    // Protects timer access
-	continuous           bool          // Whether worker runs continuously or once
-	noPreparedStatements bool          // Disable prepared statements for pgBouncer compatibility
+	pollInterval         time.Duration    // Configurable poll interval
+	contiguousErrors     int              // Count of consecutive errors
+	active               bool             // Worker active status
+	activeMutex          sync.RWMutex     // Protects active status
+	releaseCh            chan struct{}    // Channel for worker release signal
+	timer                *time.Timer      // Timer for polling
+	timerMutex           sync.Mutex       // Protects timer access
+	continuous           bool             // Whether worker runs continuously or once
+	noPreparedStatements bool             // Disable prepared statements for pgBouncer compatibility
+	forbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
+	forbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
 }
 
 // NewWorker creates a new worker instance
@@ -159,6 +166,20 @@ func WithNoPreparedStatements(noPreparedStatements bool) WorkerOption {
 	}
 }
 
+// WithForbiddenFlags sets static forbidden flags (commit fb9b249)
+func WithForbiddenFlags(flags []string) WorkerOption {
+	return func(w *Worker) {
+		w.forbiddenFlags = flags
+	}
+}
+
+// WithForbiddenFlagsFn sets dynamic forbidden flags function (commit fb9b249)
+func WithForbiddenFlagsFn(fn ForbiddenFlagsFn) WorkerOption {
+	return func(w *Worker) {
+		w.forbiddenFlagsFn = fn
+	}
+}
+
 // MakeNewWorker creates a new worker with the specified task list and options (v0.4.0 alignment)
 // This function matches the graphile-worker makeNewWorker interface
 func MakeNewWorker(
@@ -192,6 +213,14 @@ func MakeNewWorker(
 		opts = append(opts, WithNoPreparedStatements(options.NoPreparedStatements))
 	}
 
+	if options.ForbiddenFlags != nil {
+		opts = append(opts, WithForbiddenFlags(options.ForbiddenFlags))
+	}
+
+	if options.ForbiddenFlagsFn != nil {
+		opts = append(opts, WithForbiddenFlagsFn(options.ForbiddenFlagsFn))
+	}
+
 	// Create worker
 	w := NewWorker(pool, schema, opts...)
 
@@ -214,11 +243,13 @@ func MakeNewWorker(
 
 // WorkerOptions represents options for creating a worker (v0.4.0 alignment)
 type WorkerOptions struct {
-	PollInterval         time.Duration  // How often to poll for jobs
-	WorkerID             string         // Custom worker ID
-	Logger               *logger.Logger // Custom logger
-	Continuous           bool           // Whether worker runs continuously or once (default: true)
-	NoPreparedStatements bool           // Disable prepared statements for pgBouncer compatibility
+	PollInterval         time.Duration    // How often to poll for jobs
+	WorkerID             string           // Custom worker ID
+	Logger               *logger.Logger   // Custom logger
+	Continuous           bool             // Whether worker runs continuously or once (default: true)
+	NoPreparedStatements bool             // Disable prepared statements for pgBouncer compatibility
+	ForbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
+	ForbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
 }
 
 // RegisterTask registers a task handler
@@ -256,14 +287,26 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, locked_at, locked_by FROM %s.get_job($1)", w.schema)
+	// Determine forbidden flags
+	var forbiddenFlags []string
+	if w.forbiddenFlags != nil {
+		forbiddenFlags = w.forbiddenFlags
+	} else if w.forbiddenFlagsFn != nil {
+		flags, err := w.forbiddenFlagsFn()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get forbidden flags: %w", err)
+		}
+		forbiddenFlags = flags
+	}
+
+	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2)", w.schema)
 
 	var row pgx.Row
 	if w.noPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
-		row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID)
+		row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags)
 	} else {
-		row = conn.QueryRow(ctx, query, w.workerID)
+		row = conn.QueryRow(ctx, query, w.workerID, forbiddenFlags)
 	}
 
 	var job Job
@@ -280,6 +323,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	var updatedAt *time.Time
 	var key *string
 	var revision *int
+	var flags *json.RawMessage
 	var lockedAt *time.Time
 	var lockedBy *string
 
@@ -297,6 +341,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		&updatedAt,
 		&key,
 		&revision,
+		&flags,
 		&lockedAt,
 		&lockedBy,
 	)
@@ -326,6 +371,18 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	job.UpdatedAt = *updatedAt
 	job.Key = key
 	job.Revision = revision
+
+	// Parse flags JSON if present
+	if flags != nil {
+		var flagsMap map[string]bool
+		if err := json.Unmarshal(*flags, &flagsMap); err != nil {
+			return nil, fmt.Errorf("failed to parse flags: %w", err)
+		}
+		job.Flags = flagsMap
+	} else {
+		job.Flags = nil
+	}
+
 	job.LockedAt = lockedAt
 	job.LockedBy = lockedBy
 

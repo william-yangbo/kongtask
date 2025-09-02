@@ -131,8 +131,13 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 			priority = s.Priority
 		}
 
-		// Use 7-parameter add_job function (commit 27dee4d format)
-		query := fmt.Sprintf("SELECT (%s.add_job($1, $2, $3, $4, $5, $6, $7)).id", wu.schema)
+		var flags []string
+		if s.Flags != nil {
+			flags = s.Flags
+		}
+
+		// Use 8-parameter add_job function (commit fb9b249 format with flags support)
+		query := fmt.Sprintf("SELECT (%s.add_job($1, $2, $3, $4, $5, $6, $7, $8)).id", wu.schema)
 		err = conn.QueryRow(ctx, query,
 			taskIdentifier,      // identifier
 			string(payloadJSON), // payload
@@ -141,6 +146,7 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 			maxAttempts,         // max_attempts
 			s.JobKey,            // job_key
 			priority,            // priority
+			flags,               // flags
 		).Scan(&jobID)
 	}
 
@@ -274,6 +280,7 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 	for rows.Next() {
 		var job Job
 		var queueName, lastError, key, lockedBy *string
+		var flags *json.RawMessage
 		var lockedAt *time.Time
 		var id int
 
@@ -281,7 +288,7 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy, &job.Revision,
+			&key, &lockedAt, &lockedBy, &job.Revision, &flags,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
@@ -292,6 +299,18 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 		job.QueueName = queueName
 		job.LastError = lastError
 		job.Key = key
+
+		// Parse flags JSON if present
+		if flags != nil {
+			var flagsMap map[string]bool
+			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
+				return nil, fmt.Errorf("failed to parse flags: %w", err)
+			}
+			job.Flags = flagsMap
+		} else {
+			job.Flags = nil
+		}
+
 		job.LockedAt = lockedAt
 		job.LockedBy = lockedBy
 
@@ -337,6 +356,7 @@ func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string,
 	for rows.Next() {
 		var job Job
 		var queueName, lastError, key, lockedBy *string
+		var flags *json.RawMessage
 		var lockedAt *time.Time
 		var id int
 
@@ -344,7 +364,7 @@ func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string,
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy, &job.Revision,
+			&key, &lockedAt, &lockedBy, &job.Revision, &flags,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
@@ -355,6 +375,18 @@ func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string,
 		job.QueueName = queueName
 		job.LastError = lastError
 		job.Key = key
+
+		// Parse flags JSON if present
+		if flags != nil {
+			var flagsMap map[string]bool
+			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
+				return nil, fmt.Errorf("failed to parse flags: %w", err)
+			}
+			job.Flags = flagsMap
+		} else {
+			job.Flags = nil
+		}
+
 		job.LockedAt = lockedAt
 		job.LockedBy = lockedBy
 
@@ -403,6 +435,7 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 	for rows.Next() {
 		var job Job
 		var queueName, lastError, key, lockedBy *string
+		var flags *json.RawMessage
 		var lockedAt *time.Time
 		var id int
 
@@ -410,7 +443,7 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy, &job.Revision,
+			&key, &lockedAt, &lockedBy, &job.Revision, &flags,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
@@ -421,6 +454,18 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 		job.QueueName = queueName
 		job.LastError = lastError
 		job.Key = key
+
+		// Parse flags JSON if present
+		if flags != nil {
+			var flagsMap map[string]bool
+			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
+				return nil, fmt.Errorf("failed to parse flags: %w", err)
+			}
+			job.Flags = flagsMap
+		} else {
+			job.Flags = nil
+		}
+
 		job.LockedAt = lockedAt
 		job.LockedBy = lockedBy
 

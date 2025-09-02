@@ -130,21 +130,22 @@ func WaitForJobCount(t testing.TB, pool *pgxpool.Pool, schema string, expectedCo
 
 // Job represents a job record (corresponds to helpers.ts Job interface)
 type Job struct {
-	ID             string     `json:"id"`
-	QueueName      *string    `json:"queue_name"`
-	TaskIdentifier string     `json:"task_identifier"`
-	Payload        any        `json:"payload"`
-	Priority       int        `json:"priority"`
-	RunAt          time.Time  `json:"run_at"`
-	Attempts       int        `json:"attempts"`
-	MaxAttempts    int        `json:"max_attempts"`
-	LastError      *string    `json:"last_error"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	LockedAt       *time.Time `json:"locked_at"`
-	LockedBy       *string    `json:"locked_by"`
-	Revision       int        `json:"revision"` // New in commit 60da79a: job revision tracking
-	Key            *string    `json:"key"`
+	ID             string          `json:"id"`
+	QueueName      *string         `json:"queue_name"`
+	TaskIdentifier string          `json:"task_identifier"`
+	Payload        any             `json:"payload"`
+	Priority       int             `json:"priority"`
+	RunAt          time.Time       `json:"run_at"`
+	Attempts       int             `json:"attempts"`
+	MaxAttempts    int             `json:"max_attempts"`
+	LastError      *string         `json:"last_error"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	LockedAt       *time.Time      `json:"locked_at"`
+	LockedBy       *string         `json:"locked_by"`
+	Revision       int             `json:"revision"` // New in commit 60da79a: job revision tracking
+	Key            *string         `json:"key"`
+	Flags          map[string]bool `json:"flags"` // New in commit fb9b249: forbidden flags support
 }
 
 // MakeMockJob creates a mock job for testing (corresponds to helpers.ts makeMockJob)
@@ -166,6 +167,7 @@ func MakeMockJob(taskIdentifier string) Job {
 		LockedBy:       nil,
 		Revision:       0, // New in commit 60da79a: job revision tracking
 		Key:            nil,
+		Flags:          nil, // New in commit fb9b249: forbidden flags support
 	}
 }
 
