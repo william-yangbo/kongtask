@@ -57,12 +57,12 @@ type Job struct {
 
 // TaskSpec represents job scheduling options (renamed from TaskOptions in v0.4.0)
 type TaskSpec struct {
-	QueueName   *string    `json:"queueName,omitempty"`   // The queue to run this task under
-	RunAt       *time.Time `json:"runAt,omitempty"`       // Schedule this task to run in the future
+	QueueName   *string    `json:"queueName,omitempty"`   // The queue to run this task under (only specify if you want jobs in this queue to run serially). (Default: null)
+	RunAt       *time.Time `json:"runAt,omitempty"`       // A Date to schedule this task to run in the future. (Default: now)
 	Priority    *int       `json:"priority,omitempty"`    // Jobs are executed in numerically ascending order of priority (jobs with a numerically smaller priority are run first). (Default: 0)
-	MaxAttempts *int       `json:"maxAttempts,omitempty"` // How many retries should this task get
-	JobKey      *string    `json:"jobKey,omitempty"`      // New in v0.4.0: unique identifier for the job
-	Flags       []string   `json:"flags,omitempty"`       // New in commit fb9b249: forbidden flags support
+	MaxAttempts *int       `json:"maxAttempts,omitempty"` // How many retries should this task get? (Default: 25)
+	JobKey      *string    `json:"jobKey,omitempty"`      // Unique identifier for the job, can be used to update or remove it later if needed. (Default: null)
+	Flags       []string   `json:"flags,omitempty"`       // Flags for the job, can be used to dynamically filter which jobs can and cannot run at runtime. (Default: null)
 }
 
 // RescheduleOptions represents options for rescheduling jobs (commit 27dee4d)
