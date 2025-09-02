@@ -1,6 +1,6 @@
 -- KongTask Schema Dump
 -- Schema: graphile_worker
--- Generated: 2025-09-02T11:26:15+08:00
+-- Generated: 2025-09-02T13:59:43+08:00
 -- WARNING: This file is auto-generated. Do not edit manually.
 
 CREATE SCHEMA IF NOT EXISTS graphile_worker;
@@ -46,8 +46,8 @@ CREATE TABLE graphile_worker.migrations (
 -- Index: jobs_key_key
 CREATE UNIQUE INDEX jobs_key_key ON graphile_worker.jobs USING btree (key);
 
--- Index: jobs_priority_run_at_id_idx
-CREATE INDEX jobs_priority_run_at_id_idx ON graphile_worker.jobs USING btree (priority, run_at, id);
+-- Index: jobs_priority_run_at_id_locked_at_without_failures_idx
+CREATE INDEX jobs_priority_run_at_id_locked_at_without_failures_idx ON graphile_worker.jobs USING btree (priority, run_at, id, locked_at) WHERE (attempts < max_attempts);
 
 -- Functions
 

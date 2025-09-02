@@ -56,7 +56,7 @@ func TestMigrate_InstallSchema_SecondMigrationDoesNoHarm(t *testing.T) {
 	var migrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&migrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 5, migrationCount, "Should have exactly 5 migration records (including revision tracking)")
+	assert.Equal(t, 6, migrationCount, "Should have exactly 6 migration records (including revision tracking and index optimization)")
 
 	// Verify first migration ID is 1 (matching TypeScript exact verification)
 	var firstMigrationID int
@@ -121,7 +121,7 @@ func TestMigrate_WithExistingSchema(t *testing.T) {
 	var initialMigrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&initialMigrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 5, initialMigrationCount, "Should have 5 migration records after first migration")
+	assert.Equal(t, 6, initialMigrationCount, "Should have 6 migration records after first migration")
 
 	// Second migration should have no side effects (matching TypeScript idempotent behavior)
 	err = migrator.Migrate(ctx)
@@ -135,7 +135,7 @@ func TestMigrate_WithExistingSchema(t *testing.T) {
 	var finalMigrationCount int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM graphile_worker.migrations").Scan(&finalMigrationCount)
 	require.NoError(t, err)
-	assert.Equal(t, 5, finalMigrationCount, "Migration count should remain 5 after repeated migrations")
+	assert.Equal(t, 6, finalMigrationCount, "Migration count should remain 6 after repeated migrations")
 
 	// Verify schema functionality remains intact
 	_, err = conn.Exec(ctx, "SELECT graphile_worker.add_job('idempotent_test')")
