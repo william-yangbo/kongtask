@@ -16,8 +16,8 @@ build: ## Build the application
 
 build-cmd: ## Build command-line tools
 	@echo "Building command-line tools..."
-	@go build -o bin/kongtask ./cmd/api
-	@go build -o bin/kongtask-migrate ./cmd/migrate
+	@go build -o bin/kongtask ./cmd/kongtask
+	@go build -o bin/schema-dump ./cmd/schema-dump
 
 # Test targets
 test: ## Run unit tests
@@ -90,12 +90,20 @@ clean: ## Clean build artifacts
 # Database
 db-setup: ## Set up test database (requires Docker)
 	@echo "Setting up test database..."
-	@docker run --name kongtask-postgres-test -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=kongtask_test -p 5432:5432 -d postgres:16-alpine
+	@docker run --name kongtask-postgres-test -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=kongtask_test -p 5433:5432 -d postgres:16-alpine
 
 db-teardown: ## Tear down test database
 	@echo "Tearing down test database..."
 	@docker stop kongtask-postgres-test || true
 	@docker rm kongtask-postgres-test || true
+
+db-dump: build-cmd ## Export database schema to SQL file
+	@echo "Exporting database schema..."
+	@./bin/schema-dump
+
+db-dump-custom: build-cmd ## Export custom schema to SQL file (usage: make db-dump-custom SCHEMA=custom_schema OUTPUT=internal/migrate/schema/custom.sql)
+	@echo "Exporting custom schema..."
+	@./bin/schema-dump -schema $(SCHEMA) -output $(OUTPUT)
 
 # CI simulation
 ci-test: lint vet test test-integration ## Run CI tests locally

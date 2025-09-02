@@ -48,6 +48,9 @@ Thumbs.db
 
 # Test coverage
 coverage.txt
+
+# Schema files should be tracked for migration verification
+# internal/migrate/schema/*.sql files are intentionally included
 coverage.html
 
 # Dependency directories

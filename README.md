@@ -181,6 +181,37 @@ make db-setup
 
 # Stop test database
 make db-teardown
+
+# Export database schema for verification
+make db-dump
+
+# Export custom schema
+make db-dump-custom SCHEMA=my_schema OUTPUT=internal/migrate/schema/my_schema.sql
+```
+
+### Database Migrations
+
+New database migrations must be accompanied by an updated schema dump for verification and documentation. This ensures migration files correctly produce the expected database structure.
+
+Schema files are stored in `internal/migrate/schema/` alongside migration files for better organization and version control.
+
+To create a new migration:
+
+1. Add your migration file (e.g., `internal/migrate/sql/000006.sql`)
+2. Run the migration on a test database
+3. Export the updated schema: `make db-dump`
+4. Review the generated `internal/migrate/schema/graphile_worker.sql`
+5. Verify the schema matches your expectations
+6. Commit both the migration file and updated schema dump
+
+Using Docker for schema export:
+
+```bash
+# Start a clean PostgreSQL instance
+docker run -e POSTGRES_HOST_AUTH_METHOD=trust -d -p 5432:5432 postgres:16
+
+# Run migrations and export schema
+PGUSER=postgres PGHOST=localhost make db-dump
 ```
 
 ## Performance
