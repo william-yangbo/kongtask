@@ -147,38 +147,24 @@ func TestRunOnceConnectionParity(t *testing.T) {
 		user := config.ConnConfig.User
 		password := config.ConnConfig.Password
 
-		// Set PG* environment variables
-		originalEnvs := map[string]string{
-			"PGHOST":       os.Getenv("PGHOST"),
-			"PGPORT":       os.Getenv("PGPORT"),
-			"PGDATABASE":   os.Getenv("PGDATABASE"),
-			"PGUSER":       os.Getenv("PGUSER"),
-			"PGPASSWORD":   os.Getenv("PGPASSWORD"),
-			"DATABASE_URL": os.Getenv("DATABASE_URL"),
+		// Use WithEnv helper to temporarily set PG* environment variables
+		envOverrides := map[string]string{
+			"PGHOST":       host,
+			"PGPORT":       fmt.Sprintf("%d", port),
+			"PGDATABASE":   database,
+			"PGUSER":       user,
+			"PGPASSWORD":   password,
+			"DATABASE_URL": "", // Remove DATABASE_URL to force PG* usage
 		}
-		defer func() {
-			for key, val := range originalEnvs {
-				if val == "" {
-					_ = os.Unsetenv(key)
-				} else {
-					_ = os.Setenv(key, val)
-				}
+
+		testutil.WithEnv(t, envOverrides, func() {
+			options := worker.RunnerOptions{
+				TaskList: map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
 			}
-		}()
 
-		_ = os.Setenv("PGHOST", host)
-		_ = os.Setenv("PGPORT", fmt.Sprintf("%d", port))
-		_ = os.Setenv("PGDATABASE", database)
-		_ = os.Setenv("PGUSER", user)
-		_ = os.Setenv("PGPASSWORD", password)
-		_ = os.Unsetenv("DATABASE_URL") // Remove DATABASE_URL to force PG* usage
-
-		options := worker.RunnerOptions{
-			TaskList: map[string]worker.TaskHandler{"task": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error { return nil }},
-		}
-
-		err = worker.RunOnce(ctx, options)
-		require.NoError(t, err, "Should work with PG* environment variables")
+			err = worker.RunOnce(ctx, options)
+			require.NoError(t, err, "Should work with PG* environment variables")
+		})
 	})
 }
 

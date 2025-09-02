@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -232,4 +233,40 @@ func MakeSelectionOfJobs(t testing.TB, pool *pgxpool.Pool, schema string, utils 
 // Sleep pauses execution for the specified duration (corresponds to helpers.ts sleep)
 func Sleep(duration time.Duration) {
 	time.Sleep(duration)
+}
+
+// WithEnv temporarily sets environment variables for the duration of the test
+// (corresponds to helpers.ts withEnv function from commit 6edb981)
+func WithEnv(t testing.TB, envOverrides map[string]string, fn func()) {
+	t.Helper()
+
+	// Save original environment values
+	original := make(map[string]string)
+	for key := range envOverrides {
+		if val, exists := os.LookupEnv(key); exists {
+			original[key] = val
+		}
+	}
+
+	// Set new environment values
+	for key, value := range envOverrides {
+		if value == "" {
+			_ = os.Unsetenv(key)
+		} else {
+			_ = os.Setenv(key, value)
+		}
+	}
+
+	// Ensure cleanup happens
+	defer func() {
+		for key := range envOverrides {
+			if originalVal, had := original[key]; had {
+				_ = os.Setenv(key, originalVal)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}
+	}()
+
+	fn()
 }
