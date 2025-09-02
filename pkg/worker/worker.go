@@ -24,6 +24,13 @@ const (
 	FatalErrorRetryDelay = 5 * time.Second // Delay before retrying after fatal error
 )
 
+// JobKeyMode constants for controlling job key behavior (feature from commit e7ab91e)
+const (
+	JobKeyModeReplace       = "replace"         // (default) overwrites unlocked job with new values, primarily for debouncing
+	JobKeyModePreserveRunAt = "preserve_run_at" // overwrites unlocked job but preserves run_at, primarily for throttling
+	JobKeyModeUnsafeDedupe  = "unsafe_dedupe"   // dangerous: won't update existing job even if locked/failed
+)
+
 // generateWorkerID generates a cryptographically secure worker ID
 // Inspired by graphile-worker v0.5.0 improvement (commit 69938b4)
 func generateWorkerID() string {
@@ -62,8 +69,11 @@ type TaskSpec struct {
 	RunAt       *time.Time `json:"runAt,omitempty"`       // A Date to schedule this task to run in the future. (Default: now)
 	Priority    *int       `json:"priority,omitempty"`    // Jobs are executed in numerically ascending order of priority (jobs with a numerically smaller priority are run first). (Default: 0)
 	MaxAttempts *int       `json:"maxAttempts,omitempty"` // How many retries should this task get? (Default: 25)
-	JobKey      *string    `json:"jobKey,omitempty"`      // Unique identifier for the job, can be used to update or remove it later if needed. (Default: null)
-	Flags       []string   `json:"flags,omitempty"`       // Flags for the job, can be used to dynamically filter which jobs can and cannot run at runtime. (Default: null)
+	JobKey      *string    `json:"jobKey,omitempty"`      // Unique identifier for the job, can be used to replace, update or remove it later if needed. (Default: null)
+	// Modifies the behavior of `jobKey`; when 'replace' all attributes will be updated, when 'preserve_run_at' all attributes except 'run_at' will be updated,
+	// when 'unsafe_dedupe' a new job will only be added if no existing job (including locked jobs and permanently failed jobs) with matching job key exists. (Default: 'replace')
+	JobKeyMode *string  `json:"jobKeyMode,omitempty"`
+	Flags      []string `json:"flags,omitempty"` // Flags for the job, can be used to dynamically filter which jobs can and cannot run at runtime. (Default: null)
 }
 
 // RescheduleOptions represents options for rescheduling jobs (commit 27dee4d)

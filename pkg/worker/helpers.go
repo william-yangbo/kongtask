@@ -158,7 +158,7 @@ func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, 
 		query := fmt.Sprintf("SELECT %s.add_job($1, $2)", w.schema)
 		_, err = conn.Exec(ctx, query, taskIdentifier, string(payloadJSON))
 	} else {
-		// Complex case with TaskSpec - use the 7-parameter add_job with priority (commit 27dee4d)
+		// Complex case with TaskSpec - use the 9-parameter add_job with job_key_mode (commit e7ab91e)
 		spec := specs[0]
 
 		// Set default values as per graphile-worker
@@ -182,8 +182,13 @@ func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, 
 			priority = spec.Priority
 		}
 
-		// Use 7-parameter add_job function (commit 27dee4d format)
-		query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6, $7)", w.schema)
+		var jobKeyMode *string
+		if spec.JobKeyMode != nil {
+			jobKeyMode = spec.JobKeyMode
+		}
+
+		// Use 9-parameter add_job function (commit e7ab91e format)
+		query := fmt.Sprintf("SELECT %s.add_job($1, $2, $3, $4, $5, $6, $7, $8, $9)", w.schema)
 		_, err = conn.Exec(ctx, query,
 			taskIdentifier,      // identifier
 			string(payloadJSON), // payload
@@ -192,6 +197,8 @@ func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, 
 			maxAttempts,         // max_attempts
 			spec.JobKey,         // job_key
 			priority,            // priority
+			spec.Flags,          // flags
+			jobKeyMode,          // job_key_mode
 		)
 	}
 
@@ -200,4 +207,43 @@ func (w *Worker) AddJobWithTaskSpec(ctx context.Context, taskIdentifier string, 
 	}
 
 	return nil
+}
+
+// AddJobWithReplace adds a job with replace mode (debouncing behavior)
+// This is a convenience function for the most common job key usage pattern
+func (w *Worker) AddJobWithReplace(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string, spec ...TaskSpec) error {
+	var s TaskSpec
+	if len(spec) > 0 {
+		s = spec[0]
+	}
+	s.JobKey = &jobKey
+	replaceMode := JobKeyModeReplace
+	s.JobKeyMode = &replaceMode
+	return w.AddJobWithTaskSpec(ctx, taskIdentifier, payload, s)
+}
+
+// AddJobWithPreserveRunAt adds a job with preserve_run_at mode (throttling behavior)
+// This preserves the original run_at time when updating an existing job
+func (w *Worker) AddJobWithPreserveRunAt(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string, spec ...TaskSpec) error {
+	var s TaskSpec
+	if len(spec) > 0 {
+		s = spec[0]
+	}
+	s.JobKey = &jobKey
+	preserveMode := JobKeyModePreserveRunAt
+	s.JobKeyMode = &preserveMode
+	return w.AddJobWithTaskSpec(ctx, taskIdentifier, payload, s)
+}
+
+// AddJobWithUnsafeDedupe adds a job with unsafe_dedupe mode (dangerous - use with caution!)
+// This mode will not update existing jobs even if they are locked or failed
+func (w *Worker) AddJobWithUnsafeDedupe(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string, spec ...TaskSpec) error {
+	var s TaskSpec
+	if len(spec) > 0 {
+		s = spec[0]
+	}
+	s.JobKey = &jobKey
+	dedupeMode := JobKeyModeUnsafeDedupe
+	s.JobKeyMode = &dedupeMode
+	return w.AddJobWithTaskSpec(ctx, taskIdentifier, payload, s)
 }

@@ -95,6 +95,70 @@ func main() {
 }
 ```
 
+## API Reference
+
+### TaskSpec
+
+The `TaskSpec` struct provides comprehensive job scheduling options:
+
+```go
+type TaskSpec struct {
+    // The queue to run this task under (only specify if you want jobs
+    // in this queue to run serially). (Default: nil)
+    QueueName *string `json:"queueName,omitempty"`
+
+    // A time to schedule this task to run in the future. (Default: now)
+    RunAt *time.Time `json:"runAt,omitempty"`
+
+    // Jobs are executed in numerically ascending order of priority
+    // (jobs with a numerically smaller priority are run first). (Default: 0)
+    Priority *int `json:"priority,omitempty"`
+
+    // How many retries should this task get? (Default: 25)
+    MaxAttempts *int `json:"maxAttempts,omitempty"`
+
+    // Unique identifier for the job, used to replace, update or remove
+    // it later if needed. (Default: nil)
+    JobKey *string `json:"jobKey,omitempty"`
+
+    // Controls the behavior of `jobKey` when a matching job is found:
+    // - "replace" (default): all attributes will be updated
+    // - "preserve_run_at": all attributes except 'run_at' will be updated
+    // - "unsafe_dedupe": only adds job if no existing job with matching key exists
+    JobKeyMode *string `json:"jobKeyMode,omitempty"`
+
+    // Flags for the job, can be used to dynamically filter which jobs
+    // can and cannot run at runtime. (Default: nil)
+    Flags []string `json:"flags,omitempty"`
+}
+```
+
+### Adding Jobs
+
+```go
+// Simple job
+err := workerUtils.AddJob(ctx, "task_name", payload)
+
+// Job with scheduling options
+err := workerUtils.QuickAddJob(ctx, "task_name", payload, worker.TaskSpec{
+    QueueName:   stringPtr("high_priority"),
+    RunAt:       timePtr(time.Now().Add(1 * time.Hour)),
+    MaxAttempts: intPtr(10),
+    JobKey:      stringPtr("unique-job-id"),
+    JobKeyMode:  stringPtr(worker.JobKeyModeReplace),
+    Priority:    intPtr(1),
+})
+```
+
+### Helper Functions
+
+```go
+// Utility functions for pointer creation
+func stringPtr(s string) *string { return &s }
+func intPtr(i int) *int { return &i }
+func timePtr(t time.Time) *time.Time { return &t }
+```
+
 ## Database Configuration
 
 KongTask supports multiple ways to configure your PostgreSQL database connection (in order of priority):
@@ -245,6 +309,94 @@ KongTask is built with several key components:
 - **Task Handlers**: User-defined functions for job processing
 - **Helpers**: Utility functions for job management
 
+## Job Key and JobKeyMode
+
+KongTask supports advanced job management through job keys and JobKeyMode, enabling sophisticated patterns like debouncing, throttling, and deduplication.
+
+### Job Key Basics
+
+Jobs can be assigned a unique `JobKey` to enable replacing, updating, or removing them later:
+
+```go
+// Add a job with a key
+err := workerUtils.QuickAddJob(ctx, "send_email", payload, worker.TaskSpec{
+    JobKey: stringPtr("user-123-welcome-email"),
+})
+```
+
+### JobKeyMode Options
+
+When adding a job with an existing `JobKey`, the `JobKeyMode` controls the behavior:
+
+#### 1. `replace` (Default) - Debouncing Behavior
+
+Overwrites the unlocked job with new values, including `run_at`. Perfect for debouncing - delaying execution until there have been no events for a certain period.
+
+```go
+err := workerUtils.QuickAddJob(ctx, "send_email", payload, worker.TaskSpec{
+    JobKey:     stringPtr("user-123-notification"),
+    JobKeyMode: stringPtr(worker.JobKeyModeReplace),
+    RunAt:      timePtr(time.Now().Add(5 * time.Minute)), // Delay 5 minutes
+})
+```
+
+#### 2. `preserve_run_at` - Throttling Behavior
+
+Updates all job attributes except `run_at`, preserving the original execution time. Ideal for throttling - executing at most once over a given period.
+
+```go
+err := workerUtils.QuickAddJob(ctx, "send_digest", payload, worker.TaskSpec{
+    JobKey:     stringPtr("user-123-daily-digest"),
+    JobKeyMode: stringPtr(worker.JobKeyModePreserveRunAt),
+})
+```
+
+#### 3. `unsafe_dedupe` - Dangerous Deduplication
+
+Only inserts if no existing job with the same key exists (including locked or failed jobs). **Use with extreme caution** as events may not result in execution.
+
+```go
+err := workerUtils.QuickAddJob(ctx, "one_time_setup", payload, worker.TaskSpec{
+    JobKey:     stringPtr("user-123-setup"),
+    JobKeyMode: stringPtr(worker.JobKeyModeUnsafeDedupe),
+})
+```
+
+### Convenience Methods
+
+KongTask provides convenience methods for common JobKeyMode patterns:
+
+```go
+// Debouncing (replace mode)
+err := workerUtils.AddJobWithReplace(ctx, "send_email", payload, "user-123-notification")
+
+// Throttling (preserve_run_at mode)
+err := workerUtils.AddJobWithPreserveRunAt(ctx, "rate_limited_api", payload, "api-call-batch-1")
+
+// Deduplication (unsafe_dedupe mode)
+err := workerUtils.AddJobWithUnsafeDedupe(ctx, "initialization", payload, "app-init-task")
+```
+
+### JobKeyMode Algorithm
+
+The complete behavior when a job with an existing `JobKey` is found:
+
+1. **No existing job found**: Creates a new job with the specified attributes
+2. **`unsafe_dedupe` mode**: Returns the existing job without changes
+3. **Existing job is locked**: Clears the existing job's key, sets it to max attempts, and creates a new job
+4. **Existing job has failed**: Resets attempts to 0, clears errors, and updates all attributes (including `run_at`)
+5. **`preserve_run_at` mode**: Updates all attributes except `run_at`
+6. **Default behavior**: Updates all attributes including `run_at`
+
+### Best Practices
+
+- **Use descriptive job keys**: Include task type and relevant IDs (`"email-user-123-welcome"`)
+- **Choose the right mode**:
+  - `replace` for debouncing user actions
+  - `preserve_run_at` for rate limiting and throttling
+  - `unsafe_dedupe` only when you're certain about the consequences
+- **Handle locked jobs**: Remember that locked jobs will result in new job creation (except with `unsafe_dedupe`)
+
 ## Compatibility
 
 KongTask provides core API compatibility with graphile-worker v0.8.1:
@@ -337,6 +489,16 @@ similar technique to maintain the forbidden flags list.
 This feature enables complex rate limiting, maintenance mode controls, feature
 flags, and other advanced job filtering scenarios at runtime.
 
+## Error Codes
+
+KongTask uses the same error codes as graphile-worker for consistency:
+
+- `GWBID` - Task identifier is too long (max length: 128).
+- `GWBQN` - Job queue name is too long (max length: 128).
+- `GWBJK` - Job key is too long (max length: 512).
+- `GWBMA` - Job maximum attempts must be at least 1.
+- `GWBKM` - Invalid job_key_mode value, expected 'replace', 'preserve_run_at' or 'unsafe_dedupe'.
+
 ## Changelog
 
 ### v0.8.1 Alignment (September 2025)
@@ -346,6 +508,12 @@ flags, and other advanced job filtering scenarios at runtime.
 - ⚡ **Index**: Enhanced `jobs_priority_run_at_id_locked_at_without_failures_idx` for better query performance
 - 🔧 **Schema**: Updated database schema exports to reflect latest optimizations
 - ✅ **Tests**: Updated integration tests to support new migration count
+- 🔑 **JobKeyMode**: Added complete JobKeyMode support (commit e7ab91e alignment)
+  - Added migration 000007 with 9-parameter `add_job` function
+  - Implemented `replace`, `preserve_run_at`, and `unsafe_dedupe` modes
+  - Added convenience methods: `AddJobWithReplace`, `AddJobWithPreserveRunAt`, `AddJobWithUnsafeDedupe`
+  - Complete interface alignment with TypeScript implementation
+  - Comprehensive test coverage for all JobKeyMode behaviors
 
 ### Previous Versions
 

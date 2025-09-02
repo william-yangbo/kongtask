@@ -105,7 +105,7 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 		query := fmt.Sprintf("SELECT (%s.add_job($1, $2)).id", wu.schema)
 		err = conn.QueryRow(ctx, query, taskIdentifier, string(payloadJSON)).Scan(&jobID)
 	} else {
-		// Complex case with TaskSpec - use 7-parameter add_job with priority (commit 27dee4d)
+		// Complex case with TaskSpec - use 9-parameter add_job with JobKeyMode (commit e7ab91e)
 		s := spec[0]
 
 		// Set default values as per graphile-worker
@@ -134,8 +134,13 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 			flags = s.Flags
 		}
 
-		// Use 8-parameter add_job function (commit fb9b249 format with flags support)
-		query := fmt.Sprintf("SELECT (%s.add_job($1, $2, $3, $4, $5, $6, $7, $8)).id", wu.schema)
+		var jobKeyMode *string
+		if s.JobKeyMode != nil {
+			jobKeyMode = s.JobKeyMode
+		}
+
+		// Use 9-parameter add_job function (commit e7ab91e with JobKeyMode support)
+		query := fmt.Sprintf("SELECT (%s.add_job($1, $2, $3, $4, $5, $6, $7, $8, $9)).id", wu.schema)
 		err = conn.QueryRow(ctx, query,
 			taskIdentifier,      // identifier
 			string(payloadJSON), // payload
@@ -145,6 +150,7 @@ func (wu *WorkerUtils) QuickAddJob(ctx context.Context, taskIdentifier string, p
 			s.JobKey,            // job_key
 			priority,            // priority
 			flags,               // flags
+			jobKeyMode,          // job_key_mode
 		).Scan(&jobID)
 	}
 
@@ -471,4 +477,38 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 	}
 
 	return jobs, rows.Err()
+}
+
+// JobKeyMode convenience functions (commit e7ab91e addition)
+
+// stringPtr creates a string pointer (helper for JobKeyMode constants)
+func stringPtr(s string) *string {
+	return &s
+}
+
+// AddJobWithReplace adds a job with replace JobKeyMode
+func (wu *WorkerUtils) AddJobWithReplace(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string) error {
+	_, err := wu.QuickAddJob(ctx, taskIdentifier, payload, TaskSpec{
+		JobKey:     &jobKey,
+		JobKeyMode: stringPtr(JobKeyModeReplace),
+	})
+	return err
+}
+
+// AddJobWithPreserveRunAt adds a job with preserve_run_at JobKeyMode
+func (wu *WorkerUtils) AddJobWithPreserveRunAt(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string) error {
+	_, err := wu.QuickAddJob(ctx, taskIdentifier, payload, TaskSpec{
+		JobKey:     &jobKey,
+		JobKeyMode: stringPtr(JobKeyModePreserveRunAt),
+	})
+	return err
+}
+
+// AddJobWithUnsafeDedupe adds a job with unsafe_dedupe JobKeyMode
+func (wu *WorkerUtils) AddJobWithUnsafeDedupe(ctx context.Context, taskIdentifier string, payload interface{}, jobKey string) error {
+	_, err := wu.QuickAddJob(ctx, taskIdentifier, payload, TaskSpec{
+		JobKey:     &jobKey,
+		JobKeyMode: stringPtr(JobKeyModeUnsafeDedupe),
+	})
+	return err
 }
