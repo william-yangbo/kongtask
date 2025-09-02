@@ -356,8 +356,8 @@ func runWorkerOnce() error {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
-	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
 	schemaName := viper.GetString("schema")
@@ -428,8 +428,8 @@ func runTaskListOnce() error {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
-	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag or DATABASE_URL env var)")
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
 	schemaName := viper.GetString("schema")
@@ -532,8 +532,8 @@ func runTaskListPool() error {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
-	if dbURL == "" {
-		return fmt.Errorf("database URL is required (use --database-url flag, config file, or DATABASE_URL env var)")
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required (use --database-url flag, config file, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
 	// Create connection pool with custom max size
