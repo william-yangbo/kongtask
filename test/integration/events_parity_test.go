@@ -159,10 +159,7 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 
 		// Wait for job to start
 		timeout := time.After(1 * time.Second)
-		for {
-			if eventCount(events.JobStart) >= i+1 {
-				break
-			}
+		for eventCount(events.JobStart) < i+1 {
 			select {
 			case <-timeout:
 				t.Fatalf("Timeout waiting for job %d to start", i)
@@ -188,10 +185,7 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 
 		// Wait for job success
 		timeout = time.After(1 * time.Second)
-		for {
-			if eventCount(events.JobSuccess) >= i+1 {
-				break
-			}
+		for eventCount(events.JobSuccess) < i+1 {
 			select {
 			case <-timeout:
 				t.Fatalf("Timeout waiting for job %d to succeed", i)

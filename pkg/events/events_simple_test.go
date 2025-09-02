@@ -107,7 +107,8 @@ func (bus *EventBus) handleEventSimple(event Event) {
 		go func(h EventHandler) {
 			defer func() {
 				if r := recover(); r != nil {
-					// Ignore panics in simple test
+					// Ignore panics in simple test - just continue
+					_ = r
 				}
 			}()
 

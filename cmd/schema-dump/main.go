@@ -107,7 +107,7 @@ func (sd *SchemaDumper) dumpTables(ctx context.Context, content *strings.Builder
 			return err
 		}
 
-		content.WriteString(fmt.Sprintf("\n-- Table: %s\n", tableName))
+		fmt.Fprintf(content, "\n-- Table: %s\n", tableName)
 		content.WriteString(tableDef)
 		content.WriteString(";\n")
 	}
@@ -151,8 +151,8 @@ func (sd *SchemaDumper) dumpTablesManual(ctx context.Context, content *strings.B
 
 // dumpSingleTable exports a single table definition
 func (sd *SchemaDumper) dumpSingleTable(ctx context.Context, content *strings.Builder, tableName string) error {
-	content.WriteString(fmt.Sprintf("\n-- Table: %s\n", tableName))
-	content.WriteString(fmt.Sprintf("CREATE TABLE %s.%s (\n", sd.schema, tableName))
+	fmt.Fprintf(content, "\n-- Table: %s\n", tableName)
+	fmt.Fprintf(content, "CREATE TABLE %s.%s (\n", sd.schema, tableName)
 
 	// Get columns
 	query := `

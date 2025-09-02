@@ -13,7 +13,9 @@ func Example() {
 
 	// Create an event bus
 	bus := NewEventBus(ctx, 100)
-	defer bus.Close()
+	defer func() {
+		_ = bus.Close()
+	}()
 
 	// Set up default handlers for logging and metrics
 	SetupDefaultHandlers(bus)
@@ -65,7 +67,9 @@ func IntegrationExample() {
 
 	// Create event bus
 	bus := NewEventBus(ctx, 1000)
-	defer bus.Close()
+	defer func() {
+		_ = bus.Close()
+	}()
 
 	// Create emitter for worker components
 	emitter := NewBusEmitter(bus)
@@ -154,7 +158,9 @@ func simulateWorkerLifecycle(emitter EventEmitter) {
 func CustomMetricsExample() {
 	ctx := context.Background()
 	bus := NewEventBus(ctx, 100)
-	defer bus.Close()
+	defer func() {
+		_ = bus.Close()
+	}()
 
 	// Custom metrics collector
 	metrics := &MetricsCollector{
