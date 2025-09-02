@@ -22,6 +22,7 @@ type WorkerPoolOptions struct {
 	MaxPoolSize          int            // Maximum database connection pool size
 	MaxContiguousErrors  int            // Maximum contiguous errors before worker stops
 	DatabaseURL          string         // Database connection URL
+	PgPool               *pgxpool.Pool  // Existing database pool (alternative to DatabaseURL)
 	NoPreparedStatements bool           // If set true, disable prepared statements for pgBouncer compatibility
 }
 

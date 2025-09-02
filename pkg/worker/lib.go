@@ -37,12 +37,14 @@ var (
 
 // generateCacheKey creates a unique cache key for the given options
 func generateCacheKey(options *WorkerPoolOptions) string {
-	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d",
+	hasPgPool := options.PgPool != nil
+	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d|hasPgPool:%t",
 		options.Schema,
 		options.Concurrency,
 		options.PollInterval,
 		options.MaxPoolSize,
 		options.MaxContiguousErrors,
+		hasPgPool,
 	)
 }
 
@@ -159,38 +161,38 @@ func WithReleasersContext(ctx context.Context, callback func(context.Context, *R
 func AssertPool(options *WorkerPoolOptions, releasers *Releasers) (*pgxpool.Pool, error) {
 	compiled := ProcessSharedOptions(options, nil)
 
-	// Validate connection configuration
-	if options.DatabaseURL == "" {
-		return nil, fmt.Errorf("database URL is required")
+	// Validate mutual exclusivity of pgPool and DatabaseURL (mirrors graphile-worker logic)
+	if options.PgPool != nil && options.DatabaseURL != "" {
+		return nil, fmt.Errorf("both `pgPool` and `connectionString` are set, at most one of these options should be provided")
 	}
 
-	// Create pool configuration
-	poolConfig, err := pgxpool.ParseConfig(options.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse database URL: %w", err)
+	var pool *pgxpool.Pool
+	var err error
+
+	// Priority 1: Use existing pgPool if provided
+	if options.PgPool != nil {
+		pool = options.PgPool
+	} else {
+		// Priority 2+: Use connection helpers to resolve connection string with PG* envvar support
+		// This mirrors the logic from graphile-worker commit 6edb981
+		pool, err = createDatabasePool(context.Background(), options.DatabaseURL)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add cleanup function only for pools we created
+		releasers.Add(func() error {
+			pool.Close()
+			return nil
+		})
 	}
-
-	// Set max connections
-	poolConfig.MaxConns = int32(compiled.MaxPoolSize)
-	poolConfig.MinConns = 1
-
-	// Create the pool
-	pool, err := pgxpool.New(context.Background(), poolConfig.ConnString())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create database pool: %w", err)
-	}
-
-	// Add cleanup function
-	releasers.Add(func() error {
-		pool.Close()
-		return nil
-	})
 
 	// Performance warning - this mirrors graphile-worker's warning
-	if compiled.MaxPoolSize < compiled.Concurrency {
+	maxConns := int(pool.Config().MaxConns)
+	if maxConns < compiled.Concurrency {
 		compiled.Logger.Warn(
 			fmt.Sprintf("WARNING: having maxPoolSize (%d) smaller than concurrency (%d) may lead to non-optimal performance.",
-				compiled.MaxPoolSize, compiled.Concurrency),
+				maxConns, compiled.Concurrency),
 		)
 	}
 
