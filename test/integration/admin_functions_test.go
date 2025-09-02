@@ -76,12 +76,12 @@ func mustGetJobByID(t *testing.T, pool *pgxpool.Pool, jobID string) *worker.Job 
 	var id int
 
 	err = conn.QueryRow(ctx,
-		"SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, locked_at, locked_by FROM graphile_worker.jobs WHERE id = $1",
+		"SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, locked_at, locked_by FROM graphile_worker.jobs WHERE id = $1",
 		jobID).Scan(
 		&id, &queueName, &job.TaskIdentifier, &job.Payload,
 		&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 		&lastError, &job.CreatedAt, &job.UpdatedAt,
-		&key, &lockedAt, &lockedBy,
+		&key, &job.Revision, &lockedAt, &lockedBy,
 	)
 	require.NoError(t, err)
 

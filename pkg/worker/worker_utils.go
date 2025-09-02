@@ -235,8 +235,11 @@ func QuickAddJobGlobal(ctx context.Context, options WorkerUtilsOptions, taskIden
 }
 
 // CompleteJobs marks the specified jobs (by their ids) as if they were completed,
-// assuming they are not locked. Note that completing a job deletes it. You
-// may mark failed and permanently failed jobs as completed if you wish. The
+// assuming they are not locked. The completed jobs will be returned (note that
+// this may be fewer jobs than you requested); you can compare the input and output
+// to see which jobs were actually affected. Any jobs that were not completed will
+// be moved out of the future. By marking a job as completed, we mean that the job
+// will never be executed. The job will be deleted from the queue. The
 // deleted jobs will be returned (note that this may be fewer jobs than you
 // requested). (commit 27dee4d)
 func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job, error) {
@@ -278,7 +281,7 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy,
+			&key, &lockedAt, &lockedBy, &job.Revision,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
@@ -341,7 +344,7 @@ func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string,
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy,
+			&key, &lockedAt, &lockedBy, &job.Revision,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
@@ -407,7 +410,7 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 			&id, &queueName, &job.TaskIdentifier, &job.Payload,
 			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
 			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy,
+			&key, &lockedAt, &lockedBy, &job.Revision,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)

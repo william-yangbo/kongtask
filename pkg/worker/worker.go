@@ -49,6 +49,7 @@ type Job struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 	Key            *string         `json:"key"`       // New in v0.4.0: job_key support
+	Revision       *int            `json:"revision"`  // New in commit 60da79a: job revision tracking
 	LockedAt       *time.Time      `json:"locked_at"` // New in v0.4.0: task locking
 	LockedBy       *string         `json:"locked_by"` // New in v0.4.0: task locking
 }
@@ -255,7 +256,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at FROM %s.get_job($1)", w.schema)
+	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, locked_at, locked_by FROM %s.get_job($1)", w.schema)
 
 	var row pgx.Row
 	if w.noPreparedStatements {
@@ -277,6 +278,10 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	var lastError *string
 	var createdAt *time.Time
 	var updatedAt *time.Time
+	var key *string
+	var revision *int
+	var lockedAt *time.Time
+	var lockedBy *string
 
 	err = row.Scan(
 		&id,
@@ -290,6 +295,10 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		&lastError,
 		&createdAt,
 		&updatedAt,
+		&key,
+		&revision,
+		&lockedAt,
+		&lockedBy,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -315,6 +324,10 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	job.LastError = lastError
 	job.CreatedAt = *createdAt
 	job.UpdatedAt = *updatedAt
+	job.Key = key
+	job.Revision = revision
+	job.LockedAt = lockedAt
+	job.LockedBy = lockedBy
 
 	return &job, nil
 }

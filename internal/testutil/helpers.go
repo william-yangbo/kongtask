@@ -143,6 +143,7 @@ type Job struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	LockedAt       *time.Time `json:"locked_at"`
 	LockedBy       *string    `json:"locked_by"`
+	Revision       int        `json:"revision"` // New in commit 60da79a: job revision tracking
 	Key            *string    `json:"key"`
 }
 
@@ -163,6 +164,7 @@ func MakeMockJob(taskIdentifier string) Job {
 		UpdatedAt:      createdAt,
 		LockedAt:       nil,
 		LockedBy:       nil,
+		Revision:       0, // New in commit 60da79a: job revision tracking
 		Key:            nil,
 	}
 }
