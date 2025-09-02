@@ -240,7 +240,7 @@ func (sd *SchemaDumper) dumpIndexes(ctx context.Context, content *strings.Builde
 			return err
 		}
 
-		content.WriteString(fmt.Sprintf("\n-- Index: %s\n", indexName))
+		fmt.Fprintf(content, "\n-- Index: %s\n", indexName)
 		content.WriteString(indexDef)
 		content.WriteString(";\n")
 	}
@@ -275,7 +275,7 @@ func (sd *SchemaDumper) dumpFunctions(ctx context.Context, content *strings.Buil
 			return err
 		}
 
-		content.WriteString(fmt.Sprintf("\n-- Function: %s\n", functionName))
+		fmt.Fprintf(content, "\n-- Function: %s\n", functionName)
 		content.WriteString(functionDef)
 		content.WriteString(";\n")
 	}
