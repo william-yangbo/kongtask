@@ -621,6 +621,79 @@ func (a *AsyncLogger) Close() {
 }
 ```
 
+## Task Handler Logging
+
+### Debug Level Control
+
+By default, KongTask only outputs info, warn, and error level messages. Debug-level messages are suppressed unless you explicitly configure a debug-level logger or set the debug environment variable.
+
+To enable debug logging, you can:
+
+1. **Use Debug Level Logger**:
+
+```go
+debugLogger := logger.NewConsole(logger.DebugLevel)
+workerPool, err := worker.RunTaskList(ctx, tasks, pool, worker.WorkerPoolOptions{
+    Logger: debugLogger,
+})
+```
+
+2. **Environment Variable** (if supported by your logger):
+
+```bash
+export KONGTASK_DEBUG=1
+./your-app
+```
+
+### Recommended Task Handler Logging
+
+**It's strongly recommended that your task handlers always use `helpers.Logger` for logging** instead of direct `fmt.Print`, `log.Print`, or other logging methods. This ensures:
+
+- **Consistent formatting** across all components
+- **Proper log level control**
+- **Structured metadata** attachment
+- **Future log routing flexibility**
+
+```go
+// ✅ Recommended: Use helpers.Logger
+tasks := map[string]worker.TaskHandler{
+    "process_data": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+        // Use the provided logger with appropriate levels
+        helpers.Logger.Debug("Starting data processing", map[string]interface{}{
+            "payload_size": len(payload),
+        })
+
+        helpers.Logger.Info("Processing completed", map[string]interface{}{
+            "records_processed": count,
+        })
+
+        return nil
+    },
+}
+
+// ❌ Avoid: Direct logging calls
+tasks := map[string]worker.TaskHandler{
+    "process_data": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+        // This bypasses the logging system
+        fmt.Println("Processing data...")  // Don't do this
+        log.Printf("Processed %d records", count)  // Don't do this
+
+        return nil
+    },
+}
+```
+
+### Available Logger Methods
+
+The `helpers.Logger` provides 4 methods, one for each severity level:
+
+- `helpers.Logger.Debug(message string, meta map[string]interface{})` - Detailed debugging information
+- `helpers.Logger.Info(message string, meta map[string]interface{})` - General operational messages
+- `helpers.Logger.Warn(message string, meta map[string]interface{})` - Warning conditions
+- `helpers.Logger.Error(message string, meta map[string]interface{})` - Error conditions
+
+Each method accepts a string message as the first argument and optionally an arbitrary object as metadata.
+
 ## Best Practices
 
 ### 1. Use Appropriate Log Levels

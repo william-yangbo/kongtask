@@ -230,6 +230,14 @@ func (s *DefaultScheduler) scheduleTask(item ParsedCronItem, scheduledAt time.Ti
 	// Check for timing issues
 	timeDiff := s.timeProvider.Now().Sub(scheduledAt)
 	if timeDiff > s.clockSkewTolerance {
+		// Log debug message for clock skew (aligned with graphile-worker 71d22e9)
+		s.logger.Debug("KongTask Cron fired too late; catching up", logger.LogMeta{
+			"taskIdentifier": item.Job.Task,
+			"scheduledAt":    scheduledAt,
+			"actualTime":     s.timeProvider.Now(),
+			"delay":          timeDiff,
+		})
+
 		s.events.Emit(events.EventType("cron:overdueTimer"), map[string]interface{}{
 			"taskIdentifier": item.Job.Task,
 			"scheduledAt":    scheduledAt,
@@ -237,6 +245,14 @@ func (s *DefaultScheduler) scheduleTask(item ParsedCronItem, scheduledAt time.Ti
 			"delay":          timeDiff,
 		})
 	} else if timeDiff < -s.clockSkewTolerance {
+		// Log debug message for clock skew (aligned with graphile-worker 71d22e9)
+		s.logger.Debug("KongTask Cron fired too early (clock skew?); proceeding", logger.LogMeta{
+			"taskIdentifier": item.Job.Task,
+			"scheduledAt":    scheduledAt,
+			"actualTime":     s.timeProvider.Now(),
+			"advance":        -timeDiff,
+		})
+
 		s.events.Emit(events.EventType("cron:prematureTimer"), map[string]interface{}{
 			"taskIdentifier": item.Job.Task,
 			"scheduledAt":    scheduledAt,
