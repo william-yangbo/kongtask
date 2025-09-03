@@ -52,10 +52,19 @@ func TestCronRegistersIdentifiers(t *testing.T) {
 		r, err := runner.Run(runnerOpts)
 		require.NoError(t, err)
 
+		// Ensure runner is stopped before cleanup
+		defer func() {
+			if r.IsRunning() {
+				if stopErr := r.Stop(); stopErr != nil {
+					t.Logf("Warning: failed to stop runner: %v", stopErr)
+				}
+			}
+		}()
+
 		// Let it run briefly to register the cron items
 		time.Sleep(2 * time.Second)
 
-		// Stop the runner
+		// Stop the runner gracefully
 		err = r.Stop()
 		require.NoError(t, err)
 
@@ -127,10 +136,19 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered5h(t *testing.T) {
 		r, err := runner.Run(runnerOpts)
 		require.NoError(t, err)
 
+		// Ensure runner is stopped before cleanup
+		defer func() {
+			if r.IsRunning() {
+				if stopErr := r.Stop(); stopErr != nil {
+					t.Logf("Warning: failed to stop runner: %v", stopErr)
+				}
+			}
+		}()
+
 		// Wait for cron to finish backfilling
 		eventMonitor.WaitForEventCount(t, events.EventType("cron:started"), 1, 10*time.Second)
 
-		// Stop the runner
+		// Stop the runner gracefully
 		err = r.Stop()
 		require.NoError(t, err)
 
@@ -218,6 +236,15 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered25h(t *testing.T) {
 		r, err := runner.Run(runnerOpts)
 		require.NoError(t, err)
 
+		// Ensure runner is stopped before cleanup
+		defer func() {
+			if r.IsRunning() {
+				if stopErr := r.Stop(); stopErr != nil {
+					t.Logf("Warning: failed to stop runner: %v", stopErr)
+				}
+			}
+		}()
+
 		// Wait for cron to finish backfilling
 		err = testutil.SleepUntil(func() bool {
 			count, _ := cronStartedCounter.Get()
@@ -225,7 +252,7 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered25h(t *testing.T) {
 		}, 15*time.Second)
 		require.NoError(t, err, "Timed out waiting for cron:started event")
 
-		// Stop the runner
+		// Stop the runner gracefully
 		err = r.Stop()
 		require.NoError(t, err)
 
