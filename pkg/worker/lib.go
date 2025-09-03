@@ -209,11 +209,52 @@ func AssertPool(options *WorkerPoolOptions, releasers *Releasers) (*pgxpool.Pool
 		)
 	}
 
-	// Add error handler for pool
-	// Note: pgx v5 doesn't have pool.on('error') like node-postgres
-	// We could implement monitoring in the future if needed
+	// Add PostgreSQL pool error handling (aligned with graphile-worker e714bd0)
+	// While pgx v5 doesn't have pool.on('error') like node-postgres, we can implement
+	// equivalent monitoring through connection lifecycle management
+	if err := setupPoolErrorHandling(pool, compiled.Logger, releasers); err != nil {
+		return nil, fmt.Errorf("failed to setup pool error handling: %w", err)
+	}
 
 	return pool, nil
+}
+
+// setupPoolErrorHandling implements PostgreSQL pool error handling equivalent to graphile-worker e714bd0
+// While pgx v5 doesn't have pool.on('error') events like node-postgres, we implement equivalent
+// monitoring through connection lifecycle hooks and health checks
+func setupPoolErrorHandling(pool *pgxpool.Pool, logger *logger.Logger, releasers *Releasers) error {
+	// Create a pool health monitor context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Store cancel function for cleanup
+	releasers.Add(func() error {
+		cancel()
+		return nil
+	})
+
+	// Start background health monitoring to catch connection issues
+	// This provides similar error detection to node-postgres pool.on('error')
+	go func() {
+		ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Ping the pool to detect connection issues
+				pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+				if err := pool.Ping(pingCtx); err != nil {
+					// This mirrors the handlePoolError function from graphile-worker e714bd0
+					logger.Error(fmt.Sprintf("PostgreSQL pool generated error: %s", err.Error()))
+				}
+				pingCancel()
+			}
+		}
+	}()
+
+	return nil
 }
 
 // UtilsAndReleasers contains compiled utilities and cleanup functions
