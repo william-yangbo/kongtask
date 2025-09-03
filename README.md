@@ -1,14 +1,14 @@
 # KongTask
 
-KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.8.1. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
+KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.9.0. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
 
-> **Compatibility Status**: Core features aligned with graphile-worker v0.8.1. Some TypeScript-specific features are not supported (see limitations below).
+> **Compatibility Status**: Core features aligned with graphile-worker v0.9.0, including complete cron scheduling system. Some TypeScript-specific features are not supported (see limitations below).
 
 ## Features
 
 - 🚀 **High Performance**: Process 1,700+ jobs per second
 - 🔒 **Reliable**: PostgreSQL-backed job persistence and ACID guarantees
-- 🎯 **Compatible**: Core API compatibility with graphile-worker v0.8.1 (see limitations below)
+- 🎯 **Compatible**: Core API compatibility with graphile-worker v0.9.0 (see limitations below)
 - 🔧 **Flexible**: Support for job scheduling, retries, and custom task handlers
 - 🛡️ **Secure**: Cryptographically secure worker ID generation
 - 📊 **Observable**: Comprehensive logging and metrics support
@@ -429,7 +429,7 @@ The complete behavior when a job with an existing `JobKey` is found:
 
 ## Compatibility
 
-KongTask provides core API compatibility with graphile-worker v0.8.1:
+KongTask provides core API compatibility with graphile-worker v0.9.0:
 
 ### ✅ **Supported Features**
 
@@ -463,7 +463,7 @@ tasks := map[string]worker.TaskHandler{
 }
 ```
 
-**Development Status**: Core job queue functionality fully compatible with graphile-worker v0.8.1. Language-specific features (like dynamic task loading) are implemented using Go patterns rather than direct TypeScript equivalents.
+**Development Status**: Core job queue functionality fully compatible with graphile-worker v0.9.0. Language-specific features (like dynamic task loading) are implemented using Go patterns rather than direct TypeScript equivalents.
 
 ## Contributing
 
