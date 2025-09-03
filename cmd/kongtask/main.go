@@ -324,7 +324,7 @@ func runWorker() error {
 
 	// If we have both tasks and cron items, use the runner package for full integration
 	if len(watchedTasks.Tasks) > 0 || len(watchedCronItems.Items) > 0 {
-		return runWithRunner(ctx, watchedTasks.Tasks, watchedCronItems.Items)
+		return runWithRunner(ctx, watchedTasks.Tasks, watchedCronItems.Items, schemaName)
 	}
 
 	// Fallback to simple worker mode if no tasks or cron items
@@ -332,9 +332,10 @@ func runWorker() error {
 }
 
 // runWithRunner uses the runner package for full task and cron integration (sync from cli.ts)
-func runWithRunner(ctx context.Context, tasks map[string]worker.TaskHandler, cronItems []cron.ParsedCronItem) error {
+func runWithRunner(ctx context.Context, tasks map[string]worker.TaskHandler, cronItems []cron.ParsedCronItem, schemaName string) error {
 	// TODO: Implement runner integration with tasks and cron items
 	// This should use the runner package we created earlier
+	_ = schemaName // Placeholder until implementation is complete
 	return fmt.Errorf("runner integration not yet implemented")
 }
 

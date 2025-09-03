@@ -6,9 +6,20 @@ import (
 	"path/filepath"
 	"plugin"
 	"strings"
+	"unicode"
 
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
+
+// titleCase converts the first character to uppercase (replacement for deprecated strings.Title)
+func titleCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
 
 // WatchedTaskList provides task list with a release function for cleanup (sync from getTasks.ts)
 type WatchedTaskList struct {
@@ -83,7 +94,7 @@ func loadTaskFromPlugin(tasks map[string]worker.TaskHandler, pluginPath, taskNam
 
 	// Look for a symbol named "Handler" or the task name
 	var symbol plugin.Symbol
-	for _, symbolName := range []string{"Handler", taskName, strings.Title(taskName)} {
+	for _, symbolName := range []string{"Handler", taskName, titleCase(taskName)} {
 		symbol, err = p.Lookup(symbolName)
 		if err == nil {
 			break

@@ -36,7 +36,9 @@ func TestRunnerWithCron(t *testing.T) {
 	}
 
 	// Cleanup
-	releasers.ReleaseAll()
+	if err := releasers.ReleaseAll(); err != nil {
+		t.Logf("Warning: failed to release resources: %v", err)
+	}
 }
 
 func TestRunnerOptionsWithCronFile(t *testing.T) {
@@ -60,7 +62,9 @@ func TestRunnerOptionsWithCronFile(t *testing.T) {
 		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
 	}
 
-	releasers.ReleaseAll()
+	if err := releasers.ReleaseAll(); err != nil {
+		t.Logf("Warning: failed to release resources: %v", err)
+	}
 }
 
 func TestRunnerOptionsNoCron(t *testing.T) {
@@ -82,5 +86,7 @@ func TestRunnerOptionsNoCron(t *testing.T) {
 		t.Errorf("Expected 0 cron items, got %d", len(cronItems))
 	}
 
-	releasers.ReleaseAll()
+	if err := releasers.ReleaseAll(); err != nil {
+		t.Logf("Warning: failed to release resources: %v", err)
+	}
 }

@@ -312,42 +312,6 @@ func (s *DefaultScheduler) registerKnownCrontabs() error {
 	return nil
 }
 
-// getKnownCrontabs retrieves all known crontab records from the database
-func (s *DefaultScheduler) getKnownCrontabs() ([]KnownCrontab, error) {
-	conn, err := s.pgPool.Acquire(s.ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to acquire database connection: %w", err)
-	}
-	defer conn.Release()
-
-	query := fmt.Sprintf(`
-		SELECT identifier, known_since, last_execution
-		FROM %s.known_crontabs
-	`, s.schema)
-
-	rows, err := conn.Query(s.ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query known crontabs: %w", err)
-	}
-	defer rows.Close()
-
-	var knownCrontabs []KnownCrontab
-	for rows.Next() {
-		var kc KnownCrontab
-		err := rows.Scan(&kc.Identifier, &kc.KnownSince, &kc.LastExecution)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan known crontab row: %w", err)
-		}
-		knownCrontabs = append(knownCrontabs, kc)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating known crontab rows: %w", err)
-	}
-
-	return knownCrontabs, nil
-}
-
 // getLastExecutionTime retrieves the last execution time for a specific identifier
 func (s *DefaultScheduler) getLastExecutionTime(identifier string) (*time.Time, error) {
 	conn, err := s.pgPool.Acquire(s.ctx)
