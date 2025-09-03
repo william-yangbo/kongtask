@@ -2,7 +2,7 @@
 
 KongTask is a high-performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.9.0. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
 
-> **Compatibility Status**: Core features aligned with graphile-worker v0.9.0, including complete cron scheduling system. Some TypeScript-specific features are not supported (see limitations below).
+> **Compatibility Status**: Core features aligned with graphile-worker v0.9.0, including complete cron scheduling system and enhanced error handling from v0.10.0 (commit e714bd0). Some TypeScript-specific features are not supported (see limitations below).
 
 ## Features
 
@@ -635,17 +635,31 @@ KongTask uses the same error codes as graphile-worker for consistency:
 - ⚡ **Index**: Enhanced `jobs_priority_run_at_id_locked_at_without_failures_idx` for better query performance
 - 🔧 **Schema**: Updated database schema exports to reflect latest optimizations
 - ✅ **Tests**: Updated integration tests to support new migration count
-- � **Events**: Complete events system implementation (commit 92f4b3d alignment)
+- 📡 **Events**: Complete events system implementation (commit 92f4b3d alignment)
   - Added `worker:getJob:start` and `job:complete` events
   - Full EventBus implementation with typed event data
   - Compatible with graphile-worker v0.4.0+ event interface
   - Comprehensive event monitoring for worker and job lifecycle
-- �🔑 **JobKeyMode**: Added complete JobKeyMode support (commit e7ab91e alignment)
+- 🔑 **JobKeyMode**: Added complete JobKeyMode support (commit e7ab91e alignment)
   - Added migration 000007 with 9-parameter `add_job` function
   - Implemented `replace`, `preserve_run_at`, and `unsafe_dedupe` modes
   - Added convenience methods: `AddJobWithReplace`, `AddJobWithPreserveRunAt`, `AddJobWithUnsafeDedupe`
   - Complete interface alignment with TypeScript implementation
   - Comprehensive test coverage for all JobKeyMode behaviors
+
+### v0.10.0 Error Handling Alignment (September 2025)
+
+- 🛡️ **Enhanced Error Handling**: Complete synchronization with graphile-worker commit e714bd0
+  - **Signal Handling**: Removed SIGPIPE from signal processing (aligned with Node.js behavior)
+  - **Database Notifications**: Enhanced notification listener with improved error recovery and reconnection logic
+  - **PostgreSQL Pool Monitoring**: Implemented health monitoring equivalent to node-postgres pool error handling
+  - **Resource Cleanup**: Added comprehensive cleanup functions and error state management
+  - **Connection Lifecycle**: Improved connection management with proper error handling and recovery patterns
+- 🔧 **Infrastructure**: Full error handling alignment provides production-ready stability
+  - Background health monitoring for database pool connections
+  - Graceful error recovery with automatic reconnection capabilities
+  - Enhanced logging for PostgreSQL connection issues and recovery attempts
+  - Comprehensive error event emission for monitoring and debugging
 
 ### Previous Versions
 
