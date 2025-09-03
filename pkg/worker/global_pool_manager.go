@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,16 +29,6 @@ var (
 	// Test mode flag to disable actual signal handling
 	testMode bool
 )
-
-// SIGNALS defines the signals to handle for graceful shutdown (mirrors TypeScript signals.ts)
-var SIGNALS = []os.Signal{
-	syscall.SIGUSR2,
-	syscall.SIGINT,
-	syscall.SIGTERM,
-	syscall.SIGPIPE,
-	syscall.SIGHUP,
-	syscall.SIGABRT,
-}
 
 // GetAllWorkerPools returns all active worker pools (exported for testing, mirrors _allWorkerPools)
 func GetAllWorkerPools() []*WorkerPool {
