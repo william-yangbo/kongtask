@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -21,14 +22,20 @@ func getCronItems(crontabFile string, watch bool) (*WatchedCronItems, error) {
 		crontabFile = "./crontab"
 	}
 
-	// Check if file exists
+	// Check if file exists and provide intelligent logging
 	if _, err := os.Stat(crontabFile); os.IsNotExist(err) {
+		// Log that cron is disabled due to missing file
+		log.Printf("Failed to read crontab file '%s'; cron is disabled", crontabFile)
+
 		// Return empty cron items if file doesn't exist
 		return &WatchedCronItems{
 			Items:   []cron.ParsedCronItem{},
 			Release: func() {}, // No-op release function
 		}, nil
 	}
+
+	// Log that cron file was found
+	log.Printf("Found crontab file '%s'; cron is enabled", crontabFile)
 
 	// For now, implement basic file loading without watch mode
 	// TODO: Implement proper file watching functionality
@@ -44,6 +51,8 @@ func getCronItems(crontabFile string, watch bool) (*WatchedCronItems, error) {
 
 	content, err := os.ReadFile(cleanPath) //#nosec G304 -- Path validated above
 	if err != nil {
+		// Distinguish between different types of errors
+		log.Printf("Failed to read crontab file '%s': %v; cron is disabled", crontabFile, err)
 		return nil, fmt.Errorf("failed to read crontab file %s: %w", crontabFile, err)
 	}
 
@@ -51,8 +60,12 @@ func getCronItems(crontabFile string, watch bool) (*WatchedCronItems, error) {
 	parser := &cron.DefaultParser{}
 	cronItems, err := parser.ParseCrontab(string(content))
 	if err != nil {
+		log.Printf("Failed to parse crontab file '%s': %v; cron is disabled", crontabFile, err)
 		return nil, fmt.Errorf("failed to parse crontab file %s: %w", crontabFile, err)
 	}
+
+	// Log successful parsing
+	log.Printf("Successfully parsed crontab file '%s': found %d cron item(s)", crontabFile, len(cronItems))
 
 	return &WatchedCronItems{
 		Items:   cronItems,

@@ -187,7 +187,7 @@ func init() {
 
 	// Task and cron configuration (sync from cli.ts)
 	rootCmd.Flags().StringVar(&taskDirectory, "task-directory", "./tasks", "Directory containing task files")
-	rootCmd.Flags().StringVar(&crontabFile, "crontab-file", "./crontab", "Path to crontab file")
+	rootCmd.Flags().StringVar(&crontabFile, "crontab", "./crontab", "override path to crontab file")
 
 	// Worker configuration flags (matching graphile-worker CLI)
 	rootCmd.Flags().IntVarP(&jobs, "jobs", "j", worker.ConcurrentJobs, "number of jobs to run concurrently")

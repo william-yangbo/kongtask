@@ -147,6 +147,23 @@ workerPool, err := worker.RunTaskList(ctx, tasks, pool, worker.WorkerPoolOptions
 })
 ```
 
+#### Custom Crontab Path
+
+You can specify a custom crontab file path using the `--crontab` CLI option:
+
+```bash
+# Use a custom crontab file
+kongtask --crontab /path/to/my/custom.crontab
+
+# Use a different file name
+kongtask --crontab ./schedules.txt
+```
+
+The system will log the status of cron functionality:
+
+- If file exists: `Found crontab file 'path'; cron is enabled`
+- If file missing: `Failed to read crontab file 'path'; cron is disabled`
+
 ### Using Crontab Strings
 
 You can also provide crontab content directly as a string:
