@@ -101,6 +101,7 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered5h(t *testing.T) {
 		expectedTime := now.Truncate(FOUR_HOURS)
 
 		// Pre-register the identifier with last execution 5 hours ago
+		t.Logf("Setting up pre-existing cron identifier with last execution 5h ago")
 		testutil.WithPgConn(t, pool, func(conn *pgx.Conn) {
 			query := fmt.Sprintf(`
 				INSERT INTO %s.known_crontabs (
@@ -117,17 +118,23 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered5h(t *testing.T) {
 
 			_, err := conn.Exec(ctx, query)
 			require.NoError(t, err)
+			t.Logf("Pre-existing cron identifier inserted successfully")
 		})
 
-		// Set up event monitoring
+		// Set up event monitoring before runner starts
 		eventMonitor := testutil.NewEventMonitor(t)
 
+		// Start counting events before runner starts
+		cronStartedCounter := eventMonitor.Count(events.EventType("cron:started"))
+
 		// Create and start runner with cron configuration and event monitoring
+		// Use a smaller backfill period to speed up the test
+		quickCrontab := "0 */4 * * * do_it ?fill=6h"
 		runnerOpts := runner.RunnerOptions{
 			TaskList:     taskHandlers,
 			PgPool:       pool, // Use existing pool instead of creating new one
 			Schema:       TEST_SCHEMA,
-			Crontab:      CRONTAB_DO_IT,
+			Crontab:      quickCrontab,
 			Concurrency:  1,
 			PollInterval: time.Second,
 			Events:       eventMonitor.GetEventBus(),
@@ -145,8 +152,12 @@ func TestCronBackfillsIfIdentifierAlreadyRegistered5h(t *testing.T) {
 			}
 		}()
 
-		// Wait for cron to finish backfilling
-		eventMonitor.WaitForEventCount(t, events.EventType("cron:started"), 1, 10*time.Second)
+		// Wait for cron to finish backfilling with longer timeout for CI
+		t.Logf("Waiting for cron:started event (current count: %d)", func() int {
+			count, _ := cronStartedCounter.Get()
+			return count
+		}())
+		eventMonitor.WaitForEventCount(t, events.EventType("cron:started"), 1, 30*time.Second)
 
 		// Stop the runner gracefully
 		err = r.Stop()

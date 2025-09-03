@@ -141,10 +141,22 @@ func (em *EventMonitor) WaitForEventCount(t testing.TB, eventType events.EventTy
 
 	counter := em.Count(eventType)
 
+	// Log initial state
+	initialCount, _ := counter.Get()
+	t.Logf("WaitForEventCount: waiting for %s count to reach %d (current: %d, timeout: %v)",
+		eventType, expectedCount, initialCount, timeout)
+
 	err := SleepUntil(func() bool {
 		count, _ := counter.Get()
 		return count >= expectedCount
 	}, timeout)
+
+	// Log final state on timeout
+	if err != nil {
+		finalCount, _ := counter.Get()
+		t.Logf("WaitForEventCount: timeout reached - final count for %s: %d (expected: %d)",
+			eventType, finalCount, expectedCount)
+	}
 
 	require.NoError(t, err, "Timed out waiting for event %s count to reach %d", eventType, expectedCount)
 }
