@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -235,6 +236,81 @@ func Sleep(duration time.Duration) {
 	time.Sleep(duration)
 }
 
+// KnownCrontab represents a known crontab record (corresponds to helpers.ts KnownCrontab interface)
+type KnownCrontab struct {
+	Identifier    string     `json:"identifier"`
+	KnownSince    time.Time  `json:"known_since"`
+	LastExecution *time.Time `json:"last_execution"`
+}
+
+// GetKnown gets all known crontab records (corresponds to helpers.ts getKnown function)
+func GetKnown(t testing.TB, pool *pgxpool.Pool, schema string) []KnownCrontab {
+	t.Helper()
+	ctx := context.Background()
+
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, "SELECT identifier, known_since, last_execution FROM "+schema+".known_crontabs")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var knownCrontabs []KnownCrontab
+	for rows.Next() {
+		var kc KnownCrontab
+		err := rows.Scan(&kc.Identifier, &kc.KnownSince, &kc.LastExecution)
+		require.NoError(t, err)
+		knownCrontabs = append(knownCrontabs, kc)
+	}
+
+	require.NoError(t, rows.Err())
+	return knownCrontabs
+}
+
+// GetJobs gets all job records (corresponds to helpers.ts getJobs function)
+func GetJobs(t testing.TB, pool *pgxpool.Pool, schema string) []Job {
+	t.Helper()
+	ctx := context.Background()
+
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	query := "SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, locked_at, locked_by, revision, key, flags FROM " + schema + ".jobs"
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var job Job
+		err := rows.Scan(
+			&job.ID,
+			&job.QueueName,
+			&job.TaskIdentifier,
+			&job.Payload,
+			&job.Priority,
+			&job.RunAt,
+			&job.Attempts,
+			&job.MaxAttempts,
+			&job.LastError,
+			&job.CreatedAt,
+			&job.UpdatedAt,
+			&job.LockedAt,
+			&job.LockedBy,
+			&job.Revision,
+			&job.Key,
+			&job.Flags,
+		)
+		require.NoError(t, err)
+		jobs = append(jobs, job)
+	}
+
+	require.NoError(t, rows.Err())
+	return jobs
+}
+
 // WithEnv temporarily sets environment variables for the duration of the test
 // (corresponds to helpers.ts withEnv function from commit 6edb981)
 func WithEnv(t testing.TB, envOverrides map[string]string, fn func()) {
@@ -269,4 +345,24 @@ func WithEnv(t testing.TB, envOverrides map[string]string, fn func()) {
 	}()
 
 	fn()
+}
+
+// WithOptions provides a convenient test setup (corresponds to helpers.ts withOptions function)
+func WithOptions(t testing.TB, connectionString, schema string, fn func(*pgxpool.Pool, map[string]worker.TaskHandler)) {
+	t.Helper()
+
+	WithPgPool(t, connectionString, func(pool *pgxpool.Pool) {
+		// Reset database state
+		Reset(t, pool, schema)
+
+		// Provide basic task handlers
+		taskHandlers := map[string]worker.TaskHandler{
+			"do_something_else": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+				t.Logf("do_something_else called with payload: %s", string(payload))
+				return nil
+			},
+		}
+
+		fn(pool, taskHandlers)
+	})
 }

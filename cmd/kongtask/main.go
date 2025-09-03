@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/pkg/cron"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
@@ -24,11 +25,14 @@ var (
 	schema               string
 	schemaOnly           bool
 	once                 bool
+	watch                bool // [EXPERIMENTAL] Watch task files for changes (sync from cli.ts)
 	jobs                 int
 	maxPoolSize          int
 	pollInterval         int
 	noHandleSignals      bool
 	noPreparedStatements bool
+	taskDirectory        string // Directory containing task files (sync from cli.ts)
+	crontabFile          string // Path to crontab file (sync from cli.ts)
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -41,6 +45,17 @@ providing background job processing for PostgreSQL databases.
 This implementation maintains strict compatibility with the original TypeScript
 version's schema and behavior.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Validate mutually exclusive flags (sync from cli.ts validation)
+		if schemaOnly && watch {
+			log.Fatal("Cannot specify both --watch and --schema-only")
+		}
+		if schemaOnly && once {
+			log.Fatal("Cannot specify both --once and --schema-only")
+		}
+		if watch && once {
+			log.Fatal("Cannot specify both --watch and --once")
+		}
+
 		if schemaOnly {
 			if err := runMigrate(); err != nil {
 				log.Fatalf("Schema migration failed: %v", err)
@@ -159,6 +174,11 @@ func init() {
 	// v0.2.0 flags
 	rootCmd.Flags().BoolVar(&schemaOnly, "schema-only", false, "Just install (or update) the database schema, then exit")
 	rootCmd.Flags().BoolVar(&once, "once", false, "Run until there are no runnable jobs left, then exit")
+	rootCmd.Flags().BoolVarP(&watch, "watch", "w", false, "[EXPERIMENTAL] Watch task files for changes, automatically reloading the task code without restarting worker")
+
+	// Task and cron configuration (sync from cli.ts)
+	rootCmd.Flags().StringVar(&taskDirectory, "task-directory", "./tasks", "Directory containing task files")
+	rootCmd.Flags().StringVar(&crontabFile, "crontab-file", "./crontab", "Path to crontab file")
 
 	// Worker configuration flags (matching graphile-worker CLI)
 	rootCmd.Flags().IntVarP(&jobs, "jobs", "j", worker.ConcurrentJobs, "number of jobs to run concurrently")
@@ -282,6 +302,50 @@ func runWorker() error {
 	}
 	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
 		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
+	}
+
+	schemaName := viper.GetString("schema")
+	if schemaName == "" {
+		schemaName = "graphile_worker"
+	}
+
+	// Load tasks and cron items (sync from cli.ts main function)
+	watchedTasks, err := getTasks(taskDirectory, watch)
+	if err != nil {
+		return fmt.Errorf("failed to load tasks: %w", err)
+	}
+	defer watchedTasks.Release()
+
+	watchedCronItems, err := getCronItems(crontabFile, watch)
+	if err != nil {
+		return fmt.Errorf("failed to load cron items: %w", err)
+	}
+	defer watchedCronItems.Release()
+
+	// If we have both tasks and cron items, use the runner package for full integration
+	if len(watchedTasks.Tasks) > 0 || len(watchedCronItems.Items) > 0 {
+		return runWithRunner(ctx, watchedTasks.Tasks, watchedCronItems.Items)
+	}
+
+	// Fallback to simple worker mode if no tasks or cron items
+	return runSimpleWorker(ctx)
+}
+
+// runWithRunner uses the runner package for full task and cron integration (sync from cli.ts)
+func runWithRunner(ctx context.Context, tasks map[string]worker.TaskHandler, cronItems []cron.ParsedCronItem) error {
+	// TODO: Implement runner integration with tasks and cron items
+	// This should use the runner package we created earlier
+	return fmt.Errorf("runner integration not yet implemented")
+}
+
+// runSimpleWorker runs a basic worker without task loading (original implementation)
+func runSimpleWorker(ctx context.Context) error {
+	dbURL := viper.GetString("database_url")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+		return fmt.Errorf("database URL is required")
 	}
 
 	schemaName := viper.GetString("schema")

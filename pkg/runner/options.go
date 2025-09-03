@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/william-yangbo/kongtask/pkg/cron"
 	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
@@ -36,6 +37,14 @@ type RunnerOptions struct {
 
 	// Event system (v0.4.0 alignment)
 	Events *events.EventBus
+
+	// Cron configuration (sync from graphile-worker runner.ts)
+	Crontab         string        // A crontab string to use instead of reading a crontab file
+	CrontabFile     string        // Path to the crontab file. Defaults to `crontab`
+	ParsedCronItems []interface{} // Programmatically generated cron items (placeholder for now)
+
+	// Testing support
+	TimeProvider cron.TimeProvider // Time provider for testing (allows time mocking)
 }
 
 // Runner represents a running job processor (v0.4.0 alignment)

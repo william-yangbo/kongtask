@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/william-yangbo/kongtask/internal/migrate"
+	"github.com/william-yangbo/kongtask/pkg/cron"
 	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
@@ -33,6 +34,10 @@ func (r *Runner) Stop() error {
 	// Wait for completion
 	select {
 	case err := <-r.completeCh:
+		// Context cancellation is expected when stopping
+		if err == context.Canceled {
+			return nil
+		}
 		return err
 	case <-time.After(30 * time.Second):
 		return fmt.Errorf("timeout waiting for runner to stop")
@@ -160,6 +165,28 @@ func Run(options RunnerOptions) (*Runner, error) {
 		w.RegisterTask(taskName, handler)
 	}
 
+	// Parse and start cron items (sync from graphile-worker runner.ts)
+	cronItems, err := getParsedCronItemsFromOptions(processed.options, processed.releasers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse cron items: %w", err)
+	}
+
+	var cronScheduler cron.Scheduler
+	if len(cronItems) > 0 {
+		dependencies := struct {
+			pgPool *pgxpool.Pool
+			events *events.EventBus
+		}{
+			pgPool: processed.pool,
+			events: eventBus,
+		}
+
+		cronScheduler, err = runCron(processed.options, cronItems, dependencies)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start cron scheduler: %w", err)
+		}
+	}
+
 	// Create runner
 	runner := &Runner{
 		worker:     w,
@@ -177,6 +204,13 @@ func Run(options RunnerOptions) (*Runner, error) {
 		runner.releasers = append(runner.releasers, func() error {
 			processed.pool.Close()
 			return nil
+		})
+	}
+
+	// Add cron scheduler releaser if we have one (sync from graphile-worker runner.ts)
+	if cronScheduler != nil {
+		runner.releasers = append(runner.releasers, func() error {
+			return cronScheduler.Stop()
 		})
 	}
 
@@ -292,4 +326,74 @@ func RunMigrations(options RunnerOptions) error {
 		migrator := migrate.NewMigrator(pool, migrationOptions.Schema)
 		return migrator.Migrate(context.Background())
 	})
+}
+
+// getParsedCronItemsFromOptions parses cron items from runner options (sync from graphile-worker)
+func getParsedCronItemsFromOptions(options RunnerOptions, releasers *Releasers) ([]cron.ParsedCronItem, error) {
+	// Parse from crontab string if provided
+	if options.Crontab != "" {
+		parser := &cron.DefaultParser{}
+		items, err := parser.ParseCrontab(options.Crontab)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse crontab string: %w", err)
+		}
+		return items, nil
+	}
+
+	// Parse from crontab file if provided
+	if options.CrontabFile != "" {
+		// TODO: Implement file reading and parsing
+		// This would involve reading the file and calling parser.ParseCrontab
+		return nil, fmt.Errorf("crontab file parsing not yet implemented")
+	}
+
+	// Use provided parsed cron items (placeholder for now)
+	if len(options.ParsedCronItems) > 0 {
+		// TODO: Convert interface{} to proper ParsedCronItem types
+		return nil, fmt.Errorf("parsed cron items not yet implemented")
+	}
+
+	// Return empty list if no cron configuration
+	return []cron.ParsedCronItem{}, nil
+}
+
+// runCron starts a cron scheduler with the given cron items (sync from graphile-worker)
+func runCron(options RunnerOptions, cronItems []cron.ParsedCronItem, dependencies struct {
+	pgPool *pgxpool.Pool
+	events *events.EventBus
+}) (cron.Scheduler, error) {
+	// Create WorkerUtils for the scheduler
+	workerUtils := worker.NewWorkerUtils(dependencies.pgPool, options.Schema)
+
+	// Check if any cron items require backfill
+	backfillOnStart := false
+	for _, item := range cronItems {
+		if item.Options.Backfill {
+			backfillOnStart = true
+			break
+		}
+	}
+
+	// Create scheduler config
+	config := cron.SchedulerConfig{
+		PgPool:             dependencies.pgPool,
+		Schema:             options.Schema,
+		WorkerUtils:        workerUtils,
+		Events:             dependencies.events,
+		Logger:             options.Logger,
+		BackfillOnStart:    backfillOnStart, // Only backfill if any cron items need it
+		ClockSkewTolerance: 10 * time.Second,
+		CronItems:          cronItems,            // Pass the parsed cron items
+		TimeProvider:       options.TimeProvider, // Support time mocking for tests
+	}
+
+	scheduler := cron.NewScheduler(config)
+
+	// Start scheduler synchronously and check for immediate errors
+	ctx := context.Background()
+	if err := scheduler.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start cron scheduler: %w", err)
+	}
+
+	return scheduler, nil
 }

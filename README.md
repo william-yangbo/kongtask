@@ -28,6 +28,16 @@ KongTask has been updated to align with graphile-worker v0.8.1, bringing signifi
 
 The performance improvements are particularly beneficial for high-throughput scenarios and large job queues.
 
+## Documentation
+
+For detailed information, see our comprehensive documentation:
+
+- 📋 **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation with types and examples
+- ⏰ **[Crontab Guide](docs/CRONTAB.md)** - Comprehensive cron scheduling documentation
+- 🛠️ **[Task Handlers](docs/TASK_HANDLERS.md)** - Go best practices for creating robust task handlers
+- 📝 **[Custom Logging](docs/LOGGING.md)** - Integration guide for popular Go logging libraries
+- 🚀 **[Deployment](docs/DEPLOYMENT.md)** - Production deployment and operations guide
+
 ## Quick Start
 
 ### Installation
@@ -97,6 +107,8 @@ func main() {
 ```
 
 ## API Reference
+
+> **📖 For complete API documentation, see [API Reference](docs/API_REFERENCE.md)**
 
 ### TaskSpec
 
@@ -202,6 +214,8 @@ export PGPASSWORD=mypassword
 
 ## Development
 
+> **🛠️ For detailed task handler patterns and best practices, see [Task Handlers Guide](docs/TASK_HANDLERS.md)**
+
 ### Prerequisites
 
 - Go 1.22 or later
@@ -301,6 +315,9 @@ KongTask delivers excellent performance:
 - **Concurrency**: Excellent scaling with multiple workers
 
 ## Architecture
+
+> **📝 For custom logging integration examples, see [Logging Guide](docs/LOGGING.md)**  
+> **🚀 For production deployment guidance, see [Deployment Guide](docs/DEPLOYMENT.md)**
 
 KongTask is built with several key components:
 

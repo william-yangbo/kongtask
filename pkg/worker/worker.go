@@ -413,7 +413,8 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 
 	// Check if the result is NULL (no job available)
-	if id == nil {
+	if id == nil || taskIdentifier == nil || payload == nil || priority == nil || runAt == nil ||
+		attemptCount == nil || maxAttempts == nil || createdAt == nil || updatedAt == nil {
 		// Emit worker:getJob:empty event
 		if w.eventBus != nil {
 			w.eventBus.Emit(events.WorkerGetJobEmpty, map[string]interface{}{
