@@ -251,8 +251,10 @@ jobs:
         with:
           category: 'codeql'
 
-      # Note: Gosec security scanning temporarily disabled due to installation issues
-      # Will be re-enabled once the package path issue is resolved
+      - name: Run gosec Security Scanner
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec ./...
 
   # 构建测试 - 确保在不同平台可以构建
   build:

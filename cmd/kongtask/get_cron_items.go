@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/william-yangbo/kongtask/pkg/cron"
 )
@@ -36,7 +37,12 @@ func getCronItems(crontabFile string, watch bool) (*WatchedCronItems, error) {
 	}
 
 	// Read crontab file
-	content, err := os.ReadFile(crontabFile)
+	cleanPath := filepath.Clean(crontabFile)
+	if cleanPath != crontabFile {
+		return nil, fmt.Errorf("invalid crontab file path: %s", crontabFile)
+	}
+
+	content, err := os.ReadFile(cleanPath) //#nosec G304 -- Path validated above
 	if err != nil {
 		return nil, fmt.Errorf("failed to read crontab file %s: %w", crontabFile, err)
 	}

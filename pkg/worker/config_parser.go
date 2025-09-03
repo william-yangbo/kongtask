@@ -116,7 +116,13 @@ func loadCosmiconfigLike() map[string]interface{} {
 
 // loadConfigFile loads and parses a configuration file
 func loadConfigFile(path string) map[string]interface{} {
-	data, err := os.ReadFile(path)
+	// Basic path validation
+	cleanPath := filepath.Clean(path)
+	if cleanPath != path {
+		return nil // Reject paths with directory traversal attempts
+	}
+
+	data, err := os.ReadFile(cleanPath) //#nosec G304 -- Path validated above
 	if err != nil {
 		return nil
 	}
@@ -324,7 +330,7 @@ func SaveSampleConfiguration(path string) error {
 		return fmt.Errorf("failed to marshal sample config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write sample config: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -14,6 +15,14 @@ import (
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
+
+// safeInt32 safely converts an int to int32, returning an error if overflow would occur
+func safeInt32(val int) (int32, error) {
+	if val > math.MaxInt32 {
+		return 0, fmt.Errorf("value %d exceeds maximum allowed value %d", val, math.MaxInt32)
+	}
+	return int32(val), nil //#nosec G115 -- Safe conversion, we check for overflow above
+}
 
 // RunnerOptions holds configuration for creating a runner (v0.4.0 alignment)
 type RunnerOptions struct {
@@ -168,7 +177,11 @@ func assertPool(options RunnerOptions, releasers *Releasers) (*pgxpool.Pool, boo
 		}
 
 		// Set max pool size
-		config.MaxConns = int32(options.MaxPoolSize)
+		maxConns, err := safeInt32(options.MaxPoolSize)
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid max pool size: %w", err)
+		}
+		config.MaxConns = maxConns
 
 		pool, err = pgxpool.NewWithConfig(context.Background(), config)
 		if err != nil {

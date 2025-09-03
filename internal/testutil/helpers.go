@@ -152,14 +152,14 @@ type Job struct {
 
 // MakeMockJob creates a mock job for testing (corresponds to helpers.ts makeMockJob)
 func MakeMockJob(taskIdentifier string) Job {
-	createdAt := time.Now().Add(-time.Duration(rand.Intn(12345678)) * time.Millisecond)
+	createdAt := time.Now().Add(-time.Duration(rand.Intn(12345678)) * time.Millisecond) //#nosec G404 -- Test code, security not critical
 	return Job{
-		ID:             fmt.Sprintf("%d", rand.Uint32()),
+		ID:             fmt.Sprintf("%d", rand.Uint32()), //#nosec G404 -- Test code, security not critical
 		QueueName:      nil,
 		TaskIdentifier: taskIdentifier,
 		Payload:        map[string]any{},
 		Priority:       0,
-		RunAt:          time.Now().Add(-time.Duration(rand.Intn(2000)) * time.Millisecond),
+		RunAt:          time.Now().Add(-time.Duration(rand.Intn(2000)) * time.Millisecond), //#nosec G404 -- Test code, security not critical
 		Attempts:       0,
 		MaxAttempts:    25,
 		LastError:      nil,

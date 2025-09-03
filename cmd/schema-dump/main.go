@@ -286,12 +286,12 @@ func (sd *SchemaDumper) dumpFunctions(ctx context.Context, content *strings.Buil
 // writeToFile writes content to the output file
 func (sd *SchemaDumper) writeToFile(content string) error {
 	// Ensure output directory exists
-	if err := os.MkdirAll(filepath.Dir(sd.outputFile), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(sd.outputFile), 0750); err != nil {
 		return err
 	}
 
 	// Write file
-	return os.WriteFile(sd.outputFile, []byte(content), 0644)
+	return os.WriteFile(sd.outputFile, []byte(content), 0600)
 }
 
 func main() {

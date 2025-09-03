@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,6 +19,14 @@ import (
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
+
+// safeInt32 safely converts an int to int32, returning an error if overflow would occur
+func safeInt32(val int) (int32, error) {
+	if val > math.MaxInt32 {
+		return 0, fmt.Errorf("value %d exceeds maximum allowed value %d", val, math.MaxInt32)
+	}
+	return int32(val), nil //#nosec G115 -- Safe conversion, we check for overflow above
+}
 
 var (
 	cfgFile              string
@@ -377,7 +386,11 @@ func runSimpleWorker(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	poolConfig.MaxConns = int32(maxPool)
+	maxConns, err := safeInt32(maxPool)
+	if err != nil {
+		return fmt.Errorf("invalid max pool size: %w", err)
+	}
+	poolConfig.MaxConns = maxConns
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -453,7 +466,11 @@ func runWorkerOnce() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	poolConfig.MaxConns = int32(maxPool)
+	maxConns, err := safeInt32(maxPool)
+	if err != nil {
+		return fmt.Errorf("invalid max pool size: %w", err)
+	}
+	poolConfig.MaxConns = maxConns
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -516,7 +533,11 @@ func runTaskListOnce() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	poolConfig.MaxConns = int32(maxPool)
+	maxConns, err := safeInt32(maxPool)
+	if err != nil {
+		return fmt.Errorf("invalid max pool size: %w", err)
+	}
+	poolConfig.MaxConns = maxConns
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -606,7 +627,11 @@ func runTaskListPool() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	poolConfig.MaxConns = int32(config.MaxPoolSize)
+	maxConns, err := safeInt32(config.MaxPoolSize)
+	if err != nil {
+		return fmt.Errorf("invalid max pool size: %w", err)
+	}
+	poolConfig.MaxConns = maxConns
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
