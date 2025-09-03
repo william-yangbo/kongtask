@@ -82,5 +82,7 @@ func pgxpoolForURL(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 	// Simple protocol avoids prepared statements in tests to improve visibility and compatibility
 	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	// Increase max connections for concurrent tests
+	cfg.MaxConns = 10
 	return pgxpool.NewWithConfig(ctx, cfg)
 }

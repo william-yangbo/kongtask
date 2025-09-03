@@ -27,15 +27,17 @@ const (
 	WorkerCreate      EventType = "worker:create"
 	WorkerRelease     EventType = "worker:release"
 	WorkerStop        EventType = "worker:stop"
+	WorkerGetJobStart EventType = "worker:getJob:start"
 	WorkerGetJobError EventType = "worker:getJob:error"
 	WorkerGetJobEmpty EventType = "worker:getJob:empty"
 	WorkerFatalError  EventType = "worker:fatalError"
 
 	// Job Events
-	JobStart   EventType = "job:start"
-	JobSuccess EventType = "job:success"
-	JobError   EventType = "job:error"
-	JobFailed  EventType = "job:failed"
+	JobStart    EventType = "job:start"
+	JobSuccess  EventType = "job:success"
+	JobError    EventType = "job:error"
+	JobFailed   EventType = "job:failed"
+	JobComplete EventType = "job:complete"
 
 	// Lifecycle Events
 	GracefulShutdown EventType = "gracefulShutdown"

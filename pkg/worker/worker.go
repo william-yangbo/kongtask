@@ -317,6 +317,13 @@ func (w *Worker) AddJob(ctx context.Context, taskIdentifier string, payload inte
 
 // GetJob gets a job from the queue (corresponds to graphile-worker get_job)
 func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
+	// Emit worker:getJob:start event (commit 92f4b3d alignment)
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.WorkerGetJobStart, map[string]interface{}{
+			"workerId": w.workerID,
+		})
+	}
+
 	conn, err := w.pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire connection: %w", err)
@@ -586,6 +593,22 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 			jobLogger.Error(fmt.Sprintf("Failed to mark job %s as failed: %v", job.ID, failErr))
 			return fmt.Errorf("failed to release job '%s' after failure '%s': %w", job.ID, err.Error(), failErr)
 		}
+
+		// Emit job:complete event after job result is written to database (commit 92f4b3d alignment)
+		if w.eventBus != nil {
+			w.eventBus.Emit(events.JobComplete, map[string]interface{}{
+				"worker": map[string]interface{}{
+					"workerId": w.workerID,
+				},
+				"job": map[string]interface{}{
+					"id":             job.ID,
+					"taskIdentifier": job.TaskIdentifier,
+					"attempts":       job.AttemptCount,
+					"max_attempts":   job.MaxAttempts,
+				},
+			})
+		}
+
 		return err
 	}
 
@@ -609,6 +632,21 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 	if completeErr := w.CompleteJob(ctx, job.ID); completeErr != nil {
 		jobLogger.Error(fmt.Sprintf("Failed to mark job %s as completed: %v", job.ID, completeErr))
 		return fmt.Errorf("failed to release job '%s' after success: %w", job.ID, completeErr)
+	}
+
+	// Emit job:complete event after job result is written to database (commit 92f4b3d alignment)
+	if w.eventBus != nil {
+		w.eventBus.Emit(events.JobComplete, map[string]interface{}{
+			"worker": map[string]interface{}{
+				"workerId": w.workerID,
+			},
+			"job": map[string]interface{}{
+				"id":             job.ID,
+				"taskIdentifier": job.TaskIdentifier,
+				"attempts":       job.AttemptCount,
+				"max_attempts":   job.MaxAttempts,
+			},
+		})
 	}
 
 	return nil

@@ -63,8 +63,8 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 	allEventTypes := []events.EventType{
 		events.PoolCreate, events.PoolListenConnecting, events.PoolListenSuccess, events.PoolListenError,
 		events.PoolRelease, events.PoolGracefulShutdown, events.PoolShutdownError,
-		events.WorkerCreate, events.WorkerRelease, events.WorkerStop, events.WorkerGetJobError, events.WorkerGetJobEmpty, events.WorkerFatalError,
-		events.JobStart, events.JobSuccess, events.JobError, events.JobFailed,
+		events.WorkerCreate, events.WorkerRelease, events.WorkerStop, events.WorkerGetJobStart, events.WorkerGetJobError, events.WorkerGetJobEmpty, events.WorkerFatalError,
+		events.JobStart, events.JobSuccess, events.JobError, events.JobFailed, events.JobComplete,
 		events.GracefulShutdown, events.Stop,
 	}
 
@@ -114,6 +114,8 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 			<-jobChan
 			// Emit job success
 			bus.Emit(events.JobSuccess, map[string]interface{}{"jobId": jobId})
+			// Emit job complete after job success (commit 92f4b3d alignment)
+			bus.Emit(events.JobComplete, map[string]interface{}{"jobId": jobId})
 		}()
 	}
 
@@ -175,6 +177,10 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 		if eventCount(events.JobSuccess) != i {
 			t.Errorf("Expected %d job:success events, got %d", i, eventCount(events.JobSuccess))
 		}
+		// Verify job:complete events before job completion (commit 92f4b3d alignment)
+		if eventCount(events.JobComplete) != i {
+			t.Errorf("Expected %d job:complete events, got %d", i, eventCount(events.JobComplete))
+		}
 
 		// Resolve the job (matching original jobPromises[i].resolve())
 		jobMu.Lock()
@@ -193,6 +199,22 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 				// Continue polling
 			}
 		}
+
+		// Wait for job:complete event after job success (commit 92f4b3d alignment)
+		timeout = time.After(1 * time.Second)
+		for eventCount(events.JobComplete) < i+1 {
+			select {
+			case <-timeout:
+				t.Fatalf("Timeout waiting for job %d to complete", i)
+			case <-time.After(10 * time.Millisecond):
+				// Continue polling
+			}
+		}
+
+		// Verify job success count matches the graphile-worker test expectation
+		if eventCount(events.JobSuccess) != i+1 {
+			t.Errorf("Expected %d job:success events, got %d", i+1, eventCount(events.JobSuccess))
+		}
 	}
 
 	// Verify job processing completed
@@ -201,6 +223,10 @@ func TestEvents_EmitsExpectedEvents(t *testing.T) {
 	}
 	if eventCount(events.JobSuccess) != 5 {
 		t.Errorf("Expected 5 job:success events, got %d", eventCount(events.JobSuccess))
+	}
+	// Verify job:complete events match graphile-worker expectation (commit 92f4b3d alignment)
+	if eventCount(events.JobComplete) != 5 {
+		t.Errorf("Expected 5 job:complete events, got %d", eventCount(events.JobComplete))
 	}
 
 	// Small pause (matching original test)

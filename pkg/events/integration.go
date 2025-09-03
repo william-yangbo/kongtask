@@ -173,9 +173,9 @@ func SetupDefaultHandlers(bus *EventBus) {
 	allEventTypes := []EventType{
 		PoolCreate, PoolListenConnecting, PoolListenSuccess, PoolListenError,
 		PoolRelease, PoolGracefulShutdown, PoolShutdownError,
-		WorkerCreate, WorkerRelease, WorkerStop, WorkerGetJobError,
+		WorkerCreate, WorkerRelease, WorkerStop, WorkerGetJobStart, WorkerGetJobError,
 		WorkerGetJobEmpty, WorkerFatalError,
-		JobStart, JobSuccess, JobError, JobFailed,
+		JobStart, JobSuccess, JobError, JobFailed, JobComplete,
 		GracefulShutdown, Stop,
 	}
 

@@ -12,6 +12,7 @@ KongTask is a high-performance job queue implementation for Go, providing core A
 - 🔧 **Flexible**: Support for job scheduling, retries, and custom task handlers
 - 🛡️ **Secure**: Cryptographically secure worker ID generation
 - 📊 **Observable**: Comprehensive logging and metrics support
+- 📡 **Events System**: Complete worker and job lifecycle monitoring with EventBus
 - 🏷️ **Forbidden Flags**: Runtime job filtering for complex rate limiting and selective processing
 - 🔀 **Task De-duplication**: Via unique `job_key` for preventing duplicate work
 - ⚡ **Optimized Indexing**: Enhanced database performance with partial indexes (v0.8.1 features)
@@ -489,6 +490,81 @@ similar technique to maintain the forbidden flags list.
 This feature enables complex rate limiting, maintenance mode controls, feature
 flags, and other advanced job filtering scenarios at runtime.
 
+## Events System
+
+KongTask provides a comprehensive events system for monitoring worker and job lifecycle, fully compatible with graphile-worker's event interface (v0.4.0+ alignment).
+
+### Event Types
+
+The event system supports the following events:
+
+- **`worker:getJob:start`** - When a worker is about to ask the database for a job to execute
+- **`job:complete`** - When a job has finished executing and the result (success or failure) has been written back to the database
+- **`job:start`** - When a job is retrieved and starts executing
+- **`job:success`** - When a job completes successfully
+- **`job:error`** - When a job throws an error
+- **`job:failed`** - When a job fails permanently (emitted after job:error when appropriate)
+- **`worker:create`** - When a worker is created
+- **`worker:release`** - When a worker release is requested
+- **`worker:stop`** - When a worker stops (normally after a release)
+
+### Usage Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/william-yangbo/kongtask/pkg/events"
+    "github.com/william-yangbo/kongtask/pkg/worker"
+)
+
+func main() {
+    // Create EventBus for monitoring
+    eventBus := events.NewEventBus()
+
+    // Listen to worker events
+    eventBus.On(events.WorkerGetJobStart, func(data interface{}) {
+        if eventData, ok := data.(events.WorkerGetJobStartData); ok {
+            log.Printf("Worker %s is looking for a job", eventData.WorkerID)
+        }
+    })
+
+    // Listen to job completion events
+    eventBus.On(events.JobComplete, func(data interface{}) {
+        if eventData, ok := data.(events.JobCompleteData); ok {
+            log.Printf("Job %s completed by worker %s",
+                eventData.Job.ID, eventData.WorkerID)
+        }
+    })
+
+    // Use EventBus in worker configuration
+    workerPool, err := worker.RunTaskList(ctx, tasks, pool, worker.WorkerPoolOptions{
+        Concurrency: 4,
+        Events:      eventBus, // Pass EventBus for event monitoring
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer workerPool.Release()
+}
+```
+
+### Event Data Structures
+
+Each event provides relevant context data:
+
+- **WorkerGetJobStart**: `{ WorkerID: string }`
+- **JobComplete**: `{ WorkerID: string, Job: *Job }`
+- **JobStart**: `{ WorkerID: string, Job: *Job }`
+- **JobSuccess**: `{ WorkerID: string, Job: *Job }`
+- **JobError**: `{ WorkerID: string, Job: *Job, Error: error }`
+- **JobFailed**: `{ WorkerID: string, Job: *Job, Error: error }`
+
+This event system enables comprehensive monitoring, metrics collection, logging, and integration with external monitoring systems.
+
 ## Error Codes
 
 KongTask uses the same error codes as graphile-worker for consistency:
@@ -508,7 +584,12 @@ KongTask uses the same error codes as graphile-worker for consistency:
 - ⚡ **Index**: Enhanced `jobs_priority_run_at_id_locked_at_without_failures_idx` for better query performance
 - 🔧 **Schema**: Updated database schema exports to reflect latest optimizations
 - ✅ **Tests**: Updated integration tests to support new migration count
-- 🔑 **JobKeyMode**: Added complete JobKeyMode support (commit e7ab91e alignment)
+- � **Events**: Complete events system implementation (commit 92f4b3d alignment)
+  - Added `worker:getJob:start` and `job:complete` events
+  - Full EventBus implementation with typed event data
+  - Compatible with graphile-worker v0.4.0+ event interface
+  - Comprehensive event monitoring for worker and job lifecycle
+- �🔑 **JobKeyMode**: Added complete JobKeyMode support (commit e7ab91e alignment)
   - Added migration 000007 with 9-parameter `add_job` function
   - Implemented `replace`, `preserve_run_at`, and `unsafe_dedupe` modes
   - Added convenience methods: `AddJobWithReplace`, `AddJobWithPreserveRunAt`, `AddJobWithUnsafeDedupe`
