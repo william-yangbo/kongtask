@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,7 +220,7 @@ func AssertPool(options *WorkerPoolOptions, releasers *Releasers) (*pgxpool.Pool
 	return pool, nil
 }
 
-// setupPoolErrorHandling implements PostgreSQL pool error handling equivalent to graphile-worker e714bd0
+// setupPoolErrorHandling implements PostgreSQL pool error handling equivalent to graphile-worker e714bd0 and 9d0362c
 // While pgx v5 doesn't have pool.on('error') events like node-postgres, we implement equivalent
 // monitoring through connection lifecycle hooks and health checks
 func setupPoolErrorHandling(pool *pgxpool.Pool, logger *logger.Logger, releasers *Releasers) error {
@@ -255,6 +256,66 @@ func setupPoolErrorHandling(pool *pgxpool.Pool, logger *logger.Logger, releasers
 	}()
 
 	return nil
+}
+
+// handleClientError implements error handling for checked-out connections
+// This mirrors the handleClientError function from graphile-worker commit 9d0362c
+func handleClientError(logger *logger.Logger, err error) {
+	// Log unexpected errors whilst PostgreSQL client is checked out
+	// This provides equivalent functionality to graphile-worker's handleClientError
+	logger.Error(fmt.Sprintf("PostgreSQL client generated error: %s", err.Error()))
+}
+
+// withPgClientErrorHandling wraps connection usage with enhanced error handling
+// This implements the connection-level error handling from graphile-worker commit 9d0362c
+func withPgClientErrorHandling(pool *pgxpool.Pool, logger *logger.Logger, ctx context.Context, fn func(conn *pgxpool.Conn) error) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	// Execute the function with the connection
+	if err := fn(conn); err != nil {
+		// Check if the error is a connection-related error that should be logged
+		// This mirrors the enhanced error handling from graphile-worker 9d0362c
+		if isConnectionError(err) {
+			handleClientError(logger, err)
+		}
+		return err
+	}
+
+	return nil
+}
+
+// isConnectionError checks if an error is connection-related
+// This helps identify errors that should be logged via handleClientError
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for common PostgreSQL connection error patterns
+	errStr := err.Error()
+	connectionErrorPatterns := []string{
+		"connection reset by peer",
+		"broken pipe",
+		"connection refused",
+		"connection lost",
+		"connection closed",
+		"connection timeout",
+		"server closed the connection",
+		"connection bad",
+		"connection dead",
+	}
+
+	for _, pattern := range connectionErrorPatterns {
+		if strings.Contains(strings.ToLower(errStr), pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // UtilsAndReleasers contains compiled utilities and cleanup functions

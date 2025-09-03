@@ -178,14 +178,9 @@ func (wu *WorkerUtils) Release() error {
 }
 
 // WithPgClient provides access to a database connection (v0.4.0 withPgClient equivalent)
+// Enhanced with connection error handling from graphile-worker commit 9d0362c
 func (wu *WorkerUtils) WithPgClient(ctx context.Context, fn func(conn *pgxpool.Conn) error) error {
-	conn, err := wu.pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to acquire connection: %w", err)
-	}
-	defer conn.Release()
-
-	return fn(conn)
+	return withPgClientErrorHandling(wu.pool, wu.logger, ctx, fn)
 }
 
 // Logger returns the logger instance

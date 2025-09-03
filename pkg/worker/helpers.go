@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
@@ -46,25 +47,21 @@ func (w *Worker) CreateHelpers(ctx context.Context, job *Job) *Helpers {
 		Job:    job,
 	}
 
-	// WithPgClient helper
+	// WithPgClient helper - enhanced with connection error handling from graphile-worker commit 9d0362c
 	helpers.WithPgClient = func(ctx context.Context, fn func(pgx.Tx) error) error {
-		conn, err := w.pool.Acquire(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to acquire connection: %w", err)
-		}
-		defer conn.Release()
+		return withPgClientErrorHandling(w.pool, w.logger, ctx, func(conn *pgxpool.Conn) error {
+			tx, err := conn.Begin(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to begin transaction: %w", err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }() // Ignore rollback error in defer
 
-		tx, err := conn.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer func() { _ = tx.Rollback(ctx) }() // Ignore rollback error in defer
+			if err := fn(tx); err != nil {
+				return err
+			}
 
-		if err := fn(tx); err != nil {
-			return err
-		}
-
-		return tx.Commit(ctx)
+			return tx.Commit(ctx)
+		})
 	}
 
 	// Query helper - convenience wrapper for database queries
