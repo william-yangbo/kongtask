@@ -13,20 +13,22 @@ KongTask is a high-performance job queue implementation for Go, providing core A
 - 🛡️ **Secure**: Cryptographically secure worker ID generation
 - 📊 **Observable**: Comprehensive logging and metrics support
 - 📡 **Events System**: Complete worker and job lifecycle monitoring with EventBus
+- 🗓️ **Cron Scheduling**: File-based recurring task scheduling with intelligent loading (v0.9.0)
 - 🏷️ **Forbidden Flags**: Runtime job filtering for complex rate limiting and selective processing
 - 🔀 **Task De-duplication**: Via unique `job_key` for preventing duplicate work
 - ⚡ **Optimized Indexing**: Enhanced database performance with partial indexes (v0.8.1 features)
 
-## Recent Updates (v0.8.1 Alignment)
+## Recent Updates (v0.9.0)
 
-KongTask has been updated to align with graphile-worker v0.8.1, bringing significant performance improvements:
+KongTask v0.9.0 brings major cron scheduling capabilities and logging improvements, aligning with the latest graphile-worker features:
 
-- 🚀 **Enhanced Database Performance**: New optimized index `jobs_priority_run_at_id_locked_at_without_failures_idx` with partial indexing
-- 📊 **Reduced Index Size**: Partial indexes exclude failed jobs (`attempts < max_attempts`) for better performance
-- 🔧 **Migration 000006**: Automatically applied database schema updates for performance optimization
-- 🔗 **Full Compatibility**: Maintains backward compatibility while adding latest performance enhancements
+- �️ **Complete Cron Scheduling**: File-based cron scheduling with intelligent loading and status reporting
+- � **Reduced Logging Noise**: Debug-level clock skew logging and enhanced task handler best practices
+- 🎯 **CLI Consistency**: Unified `--crontab` parameter interface matching graphile-worker conventions
+- � **Enhanced Documentation**: Comprehensive guides for cron scheduling and logging best practices
+- � **Intelligent Loading**: Smart crontab file detection with detailed status feedback
 
-The performance improvements are particularly beneficial for high-throughput scenarios and large job queues.
+The cron scheduling system provides production-ready task automation with full compatibility to graphile-worker patterns.
 
 ## Documentation
 
@@ -603,6 +605,28 @@ KongTask uses the same error codes as graphile-worker for consistency:
 - `GWBKM` - Invalid job_key_mode value, expected 'replace', 'preserve_run_at' or 'unsafe_dedupe'.
 
 ## Changelog
+
+### v0.9.0 (September 2025)
+
+- 🗓️ **Cron Scheduling**: Complete cron scheduling system implementation
+  - Synchronize with graphile-worker commit ace64ac cron improvements
+  - CLI parameter alignment: `--crontab-file` → `--crontab` for consistency
+  - Intelligent crontab file loading with status-aware logging
+  - Enhanced documentation with custom crontab path examples
+- 🔇 **Logging Improvements**: Reduced noise and enhanced debugging (commit 71d22e9 alignment)
+  - Debug-level logging for cron clock skew events (reduced production noise)
+  - Enhanced task handler logging best practices documentation
+  - Recommended use of `helpers.Logger` over direct logging calls
+  - Comprehensive logging level control and debug message handling
+- 📚 **Documentation**: Major improvements across multiple areas
+  - Updated CLI documentation with new `--crontab` parameter examples
+  - Complete cron scheduling guide in `docs/CRONTAB.md`
+  - Enhanced `docs/LOGGING.md` with task handler best practices
+  - README CLI examples with multiple parameter combinations
+- 🎯 **Interface Consistency**: Full alignment with graphile-worker patterns
+  - Unified CLI interface design matching upstream conventions
+  - Intelligent error handling with detailed diagnostic messages
+  - Consistent parameter naming and behavior across components
 
 ### v0.8.1 Alignment (September 2025)
 
