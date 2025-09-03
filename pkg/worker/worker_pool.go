@@ -196,13 +196,25 @@ func (wp *WorkerPool) startNotificationListener() error {
 }
 
 // handleNotifications processes database notifications
+// Enhanced error handling aligned with graphile-worker commit e714bd0
 func (wp *WorkerPool) handleNotifications() {
 	defer wp.wg.Done()
-	defer func() {
+
+	var errorHandled bool
+
+	// Enhanced cleanup function
+	cleanup := func() {
 		if wp.notifyConn != nil {
+			// Attempt to unlisten before releasing (ignore errors during cleanup)
+			if !errorHandled {
+				_, _ = wp.notifyConn.Exec(context.Background(), `UNLISTEN "jobs:insert"`)
+			}
 			wp.notifyConn.Release()
+			wp.notifyConn = nil
 		}
-	}()
+	}
+
+	defer cleanup()
 
 	for {
 		select {
@@ -216,6 +228,9 @@ func (wp *WorkerPool) handleNotifications() {
 					return // Context cancelled
 				}
 
+				// Mark error as handled to prevent duplicate cleanup
+				errorHandled = true
+
 				// Emit pool:listen:error event (main.ts alignment)
 				wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
 					"workerPool": wp,
@@ -223,13 +238,17 @@ func (wp *WorkerPool) handleNotifications() {
 				})
 
 				wp.logger.Error(fmt.Sprintf("Notification error: %v", err))
+
+				// Release current connection before retry
+				cleanup()
+
 				time.Sleep(5 * time.Second) // Retry after error
 
-				// Emit pool:listen:connecting event for reconnection (main.ts alignment)
-				wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
-					"workerPool": wp,
-				})
-				continue
+				// Try to re-establish connection
+				if wp.notifyCtx.Err() == nil {
+					wp.reconnectNotificationListener()
+				}
+				return
 			}
 
 			if notification.Channel == "jobs:insert" {
@@ -243,6 +262,28 @@ func (wp *WorkerPool) handleNotifications() {
 			}
 		}
 	}
+}
+
+// reconnectNotificationListener attempts to reconnect the notification listener
+// Inspired by graphile-worker's enhanced error recovery in commit e714bd0
+func (wp *WorkerPool) reconnectNotificationListener() {
+	if wp.notifyCtx.Err() != nil {
+		return // Don't reconnect if context is cancelled
+	}
+
+	// Emit pool:listen:connecting event for reconnection (main.ts alignment)
+	wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
+		"workerPool": wp,
+	})
+
+	go func() {
+		// Small delay before reconnection attempt
+		time.Sleep(1 * time.Second)
+
+		if err := wp.startNotificationListener(); err != nil {
+			wp.logger.Error(fmt.Sprintf("Failed to reconnect notification listener: %v", err))
+		}
+	}()
 }
 
 // runNudgeCoordinator coordinates worker nudging
