@@ -1,4 +1,4 @@
-name: CI (Fast)
+name: CI (Optimized)
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
   POSTGRES_VERSION: '16'
 
 jobs:
-  # Fast feedback - runs first and fails fast
+  # Fast feedback job - runs first and fails fast
   quick-checks:
     name: Quick Checks
     runs-on: ubuntu-latest
@@ -41,13 +41,13 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-      - name: Run golangci-lint (replaces staticcheck + golint)
+      - name: Run golangci-lint (includes staticcheck, golint, and more)
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m --fast
 
-  # Main test job - single version for fast feedback
+  # Main test job - only one Go version, one PostgreSQL version
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -103,7 +103,53 @@ jobs:
           flags: unittests
           name: codecov-umbrella
 
-  # Performance tests - only on main branch or perf-related changes
+  # Compatibility test - only run on main branch pushes or when Go files change
+  compatibility:
+    name: Compatibility Test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || contains(github.event.head_commit.modified, '.go')
+    needs: test
+
+    strategy:
+      matrix:
+        go-version: ['1.22'] # Only test older Go version for compatibility
+        postgres-version: ['14', '15'] # Only test older PostgreSQL versions
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres-version }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kongtask_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Run basic tests
+        run: go test ./... # No race detection for faster execution
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kongtask_test
+
+  # Performance tests - only run on main branch or when performance-related files change
   performance:
     name: Performance Tests
     runs-on: ubuntu-latest
@@ -144,12 +190,11 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: kongtask_test
 
-  # Basic security scan - only on main branch
+  # Security scanning - only run on main branch pushes (weekly or on security-sensitive changes)
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || contains(join(github.event.commits.*.modified, ' '), 'go.mod') || contains(join(github.event.commits.*.modified, ' '), '.github/'))
 
     steps:
       - name: Checkout code
@@ -161,7 +206,27 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run Gosec Security Scanner (lightweight)
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: 'codeql'
+
+      - name: Run Gosec Security Scanner
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -no-fail ./...
+          gosec -no-fail -fmt sarif -out results.sarif ./...
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: 'gosec'
