@@ -1,7 +1,7 @@
 package cron
 
 import (
-"time"
+	"time"
 )
 
 // DefaultMatcher implements the Matcher interface
@@ -15,7 +15,7 @@ func NewMatcher() Matcher {
 // Matches checks if a cron item should fire at the given time
 func (m *DefaultMatcher) Matches(item ParsedCronItem, t time.Time) bool {
 	digest := m.DigestTimestamp(t)
-	
+
 	// Check each time component
 	return m.containsInt(item.Minutes, digest.Minute) &&
 		m.containsInt(item.Hours, digest.Hour) &&
@@ -38,17 +38,17 @@ func (m *DefaultMatcher) DigestTimestamp(t time.Time) TimestampDigest {
 // GetScheduleTimesInRange finds all matching times in a range
 func (m *DefaultMatcher) GetScheduleTimesInRange(item ParsedCronItem, start, end time.Time) []time.Time {
 	var times []time.Time
-	
+
 	// Round start time down to the nearest minute
 	startTime := start.Truncate(time.Minute)
-	
+
 	// Iterate through each minute in the range
 	for current := startTime; current.Before(end); current = current.Add(time.Minute) {
 		if m.Matches(item, current) {
 			times = append(times, current)
 		}
 	}
-	
+
 	return times
 }
 
