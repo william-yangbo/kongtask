@@ -208,6 +208,16 @@ export PGPASSWORD=mypassword
 
 # Using database-url flag
 ./kongtask worker --database-url "postgres://user:password@localhost/dbname"
+
+# Using custom crontab file (default: "./crontab")
+./kongtask worker --crontab /path/to/custom.crontab
+
+# Complete example with multiple options
+./kongtask worker \
+  --database-url "postgres://user:password@localhost/dbname" \
+  --crontab ./my-schedules.txt \
+  --jobs 4 \
+  --schema graphile_worker
 ```
 
 > **Note**: When using PostgreSQL environment variables, at least `PGDATABASE` must be set. Other variables will use PostgreSQL defaults if not specified.
