@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/william-yangbo/kongtask/pkg/env"
 )
 
 // LogScope represents the scope/context information for logging
@@ -103,7 +105,7 @@ func (l *Logger) Debug(message string, meta ...LogMeta) {
 func ConsoleLogFactory(scope LogScope) LogFunction {
 	return func(level LogLevel, message string, meta ...LogMeta) {
 		// Skip debug messages unless explicitly enabled (mirrors TypeScript GRAPHILE_WORKER_DEBUG)
-		if level == LogLevelDebug && os.Getenv("GRAPHILE_WORKER_DEBUG") == "" && os.Getenv("KONGTASK_DEBUG") == "" {
+		if level == LogLevelDebug && !env.IsDebugEnabled() {
 			return
 		}
 

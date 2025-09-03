@@ -1,8 +1,9 @@
 package worker
 
 import (
-	"os"
 	"time"
+
+	"github.com/william-yangbo/kongtask/pkg/env"
 )
 
 // Configuration constants matching graphile-worker config.ts
@@ -42,10 +43,7 @@ func DefaultConfig() Config {
 // getSchemaFromEnv returns the schema name from environment variable or default
 // This aligns with graphile-worker commit 5e455c0 behavior
 func getSchemaFromEnv() string {
-	if schema := os.Getenv("GRAPHILE_WORKER_SCHEMA"); schema != "" {
-		return schema
-	}
-	return DefaultSchema
+	return env.Schema(DefaultSchema)
 }
 
 // applyDefaultOptions applies default values to WorkerPoolOptions

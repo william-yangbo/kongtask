@@ -1,2 +1,0 @@
-# Test crontab
-0 */1 * * * test_task

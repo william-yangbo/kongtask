@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/william-yangbo/kongtask/internal/migrate"
 	"github.com/william-yangbo/kongtask/pkg/cron"
+	"github.com/william-yangbo/kongtask/pkg/env"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 	"github.com/william-yangbo/kongtask/pkg/worker"
 )
@@ -252,9 +253,9 @@ func runMigrate() error {
 
 	dbURL := viper.GetString("database_url")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+		dbURL = env.DatabaseURL()
 	}
-	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+	if dbURL == "" && !env.HasPGVariables() {
 		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
@@ -307,9 +308,9 @@ func runWorker() error {
 
 	dbURL := viper.GetString("database_url")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+		dbURL = env.DatabaseURL()
 	}
-	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+	if dbURL == "" && !env.HasPGVariables() {
 		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
@@ -352,9 +353,9 @@ func runWithRunner(ctx context.Context, tasks map[string]worker.TaskHandler, cro
 func runSimpleWorker(ctx context.Context) error {
 	dbURL := viper.GetString("database_url")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+		dbURL = env.DatabaseURL()
 	}
-	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+	if dbURL == "" && !env.HasPGVariables() {
 		return fmt.Errorf("database URL is required")
 	}
 
@@ -432,9 +433,9 @@ func runWorkerOnce() error {
 
 	dbURL := viper.GetString("database_url")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+		dbURL = env.DatabaseURL()
 	}
-	if dbURL == "" && os.Getenv("PGDATABASE") == "" {
+	if dbURL == "" && !env.HasPGVariables() {
 		return fmt.Errorf("database URL is required (use --database-url flag, DATABASE_URL env var, or PG* env vars including at least PGDATABASE)")
 	}
 
@@ -443,12 +444,12 @@ func runWorkerOnce() error {
 		schemaName = "graphile_worker"
 	}
 
-	// Get CLI parameters or use defaults
+	// Get CLI parameters or use defaults with environment variable fallback
 	maxPool := viper.GetInt("max_pool_size")
 	if maxPool <= 0 {
 		maxPool = maxPoolSize
 		if maxPool <= 0 {
-			maxPool = worker.DefaultMaxPoolSize
+			maxPool = env.MaxPoolSize(worker.DefaultMaxPoolSize)
 		}
 	}
 

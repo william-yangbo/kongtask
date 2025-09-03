@@ -61,6 +61,7 @@ For detailed information, see our comprehensive documentation:
 - ⏰ **[Crontab Guide](docs/CRONTAB.md)** - Comprehensive cron scheduling documentation
 - 🛠️ **[Task Handlers](docs/TASK_HANDLERS.md)** - Go best practices for creating robust task handlers
 - 📝 **[Custom Logging](docs/LOGGING.md)** - Integration guide for popular Go logging libraries
+- 🌍 **[Environment Variables](docs/ENVIRONMENT.md)** - Comprehensive environment variable configuration guide
 - 🚀 **[Deployment](docs/DEPLOYMENT.md)** - Production deployment and operations guide
 
 ## Quick Start
@@ -205,6 +206,8 @@ KongTask supports multiple ways to configure your PostgreSQL database connection
 2. **`DATABASE_URL` environment variable**
 3. **PostgreSQL standard environment variables** (`PG*` envvars)
 
+> **📝 For comprehensive environment variable configuration, see [Environment Variables Guide](docs/ENVIRONMENT.md)**
+
 ### Using Environment Variables
 
 #### DATABASE_URL
@@ -222,6 +225,21 @@ export PGPORT=5432
 export PGDATABASE=kongtask_dev
 export PGUSER=myuser
 export PGPASSWORD=mypassword
+./kongtask worker
+```
+
+#### KongTask-Specific Environment Variables
+
+```bash
+# New KONGTASK_ prefix (recommended)
+export KONGTASK_DEBUG=true
+export KONGTASK_CONCURRENCY=4
+export KONGTASK_MAX_POOL_SIZE=20
+export KONGTASK_LOG_LEVEL=debug
+
+# Legacy GRAPHILE_WORKER_ prefix (still supported)
+export GRAPHILE_WORKER_SCHEMA=custom_schema
+export GRAPHILE_WORKER_DEBUG=1
 ./kongtask worker
 ```
 
@@ -628,6 +646,21 @@ KongTask uses the same error codes as graphile-worker for consistency:
 - `GWBKM` - Invalid job_key_mode value, expected 'replace', 'preserve_run_at' or 'unsafe_dedupe'.
 
 ## Changelog
+
+### v0.10.1 (September 2025)
+
+- 🌍 **Environment Variable Improvements**: Enhanced environment variable handling with centralized management
+  - **New KONGTASK\_\* prefix**: Introduced `KONGTASK_DEBUG`, `KONGTASK_CONCURRENCY`, `KONGTASK_MAX_POOL_SIZE`, `KONGTASK_LOG_LEVEL` environment variables
+  - **Priority System**: Clear priority order - CLI flags > KONGTASK*\* > GRAPHILE_WORKER*\* > defaults
+  - **Backward Compatibility**: Full support for existing `GRAPHILE_WORKER_*` environment variables
+  - **Boolean Handling**: Flexible boolean parsing (true/1/yes/on and false/0/no/off, case-insensitive)
+  - **Validation & Fallbacks**: Intelligent validation with graceful fallback to defaults for invalid values
+  - **Centralized Management**: New `pkg/env` package for consistent environment variable handling across the application
+- 📚 **Documentation**: New comprehensive [Environment Variables Guide](docs/ENVIRONMENT.md)
+  - Complete reference for all supported environment variables
+  - Migration guide from graphile-worker environment variables
+  - Development vs production configuration examples
+  - Environment variable priority and validation documentation
 
 ### v0.10.0 (September 2025)
 
