@@ -606,6 +606,7 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 					"attempts":       job.AttemptCount,
 					"max_attempts":   job.MaxAttempts,
 				},
+				"error": err.Error(), // Job failed with error (commit 63c2ee6 alignment)
 			})
 		}
 
@@ -646,6 +647,7 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 				"attempts":       job.AttemptCount,
 				"max_attempts":   job.MaxAttempts,
 			},
+			"error": nil, // Job completed successfully (commit 63c2ee6 alignment)
 		})
 	}
 

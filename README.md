@@ -557,7 +557,7 @@ func main() {
 Each event provides relevant context data:
 
 - **WorkerGetJobStart**: `{ WorkerID: string }`
-- **JobComplete**: `{ WorkerID: string, Job: *Job }`
+- **JobComplete**: `{ WorkerID: string, Job: *Job, Error: error }` (includes error field for both success and failure)
 - **JobStart**: `{ WorkerID: string, Job: *Job }`
 - **JobSuccess**: `{ WorkerID: string, Job: *Job }`
 - **JobError**: `{ WorkerID: string, Job: *Job, Error: error }`
