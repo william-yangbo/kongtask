@@ -130,6 +130,12 @@ type WorkerPoolOptions struct {
     // Whether to handle OS signals (default: true)
     NoHandleSignals bool
 
+    // Disable prepared statements for pgBouncer compatibility (default: false)
+    // Set true if you want to prevent the use of prepared statements,
+    // for example if you wish to use KongTask with an external PostgreSQL
+    // connection pool. Enabling this setting may have a small performance impact.
+    NoPreparedStatements bool
+
     // Forbidden flags (static)
     ForbiddenFlags []string
 

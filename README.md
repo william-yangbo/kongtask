@@ -74,6 +74,8 @@ func main() {
 
 ## Configuration
 
+### Database Connection
+
 Multiple database connection methods supported:
 
 ```bash
@@ -86,6 +88,27 @@ export PGHOST=localhost PGPORT=5432 PGDATABASE=mydb PGUSER=user PGPASSWORD=pass
 # Method 3: Command line
 ./kongtask worker --database-url "postgres://user:password@localhost/dbname"
 ```
+
+### Advanced Options
+
+#### Prepared Statements
+
+KongTask uses prepared statements by default for better performance. However, you can disable them for compatibility with external connection poolers like pgBouncer:
+
+```bash
+# Command line
+./kongtask worker --no-prepared-statements
+
+# Configuration file (JSON)
+{
+  "no_prepared_statements": true
+}
+
+# Environment variable
+export GRAPHILE_WORKER_NO_PREPARED_STATEMENTS=true
+```
+
+**Note**: Disabling prepared statements may have a small performance impact but is necessary when using external PostgreSQL connection pools.
 
 ## Documentation
 
