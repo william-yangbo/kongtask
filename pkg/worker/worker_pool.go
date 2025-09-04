@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
-	"crypto/rand"
+	cryptoRand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -35,13 +37,19 @@ type WorkerPoolOptions struct {
 func generatePoolID() string {
 	// Generate 9 random bytes (same as graphile-worker v0.5.0+)
 	bytes := make([]byte, 9)
-	_, err := rand.Read(bytes)
+	_, err := cryptoRand.Read(bytes)
 	if err != nil {
 		// Fallback to time-based if crypto fails (should be extremely rare)
 		return fmt.Sprintf("pool_%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(bytes)
 }
+
+// Constants for LISTEN connection exponential backoff (aligned with graphile-worker commit 50e237e)
+const (
+	// Wait at most 60 seconds between connection attempts for LISTEN.
+	maxListenDelay = 60 * time.Second
+)
 
 // WorkerPool represents a pool of workers with graceful shutdown
 type WorkerPool struct {
@@ -60,9 +68,10 @@ type WorkerPool struct {
 	shutdownOnce sync.Once
 
 	// Database notification
-	notifyConn   *pgxpool.Conn
-	notifyCtx    context.Context
-	notifyCancel context.CancelFunc
+	notifyConn     *pgxpool.Conn
+	notifyCtx      context.Context
+	notifyCancel   context.CancelFunc
+	listenAttempts int // Counter for exponential backoff (commit 50e237e alignment)
 
 	// Channels for coordination
 	nudgeChannel     chan struct{}
@@ -159,30 +168,28 @@ func (wp *WorkerPool) startNotificationListener() error {
 	// Emit pool:listen:connecting event (main.ts alignment)
 	wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
 		"workerPool": wp,
+		"attempts":   wp.listenAttempts, // Add attempts parameter (commit 50e237e alignment)
 	})
 
 	conn, err := wp.pool.Acquire(wp.notifyCtx)
 	if err != nil {
-		// Emit pool:listen:error event (main.ts alignment)
-		wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
-			"workerPool": wp,
-			"error":      err,
-		})
-		return fmt.Errorf("failed to acquire connection for notifications: %w", err)
+		// Apply exponential backoff for initial connection failures (commit 50e237e alignment)
+		wp.reconnectWithExponentialBackoff(err)
+		return nil // Return nil since reconnection is handled asynchronously
 	}
 	wp.notifyConn = conn
 
 	// Start listening for job insertions
 	_, err = conn.Exec(wp.notifyCtx, `LISTEN "jobs:insert"`)
 	if err != nil {
-		// Emit pool:listen:error event (main.ts alignment)
-		wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
-			"workerPool": wp,
-			"error":      err,
-		})
+		// Apply exponential backoff for LISTEN failures (commit 50e237e alignment)
 		conn.Release()
-		return fmt.Errorf("failed to listen for notifications: %w", err)
+		wp.reconnectWithExponentialBackoff(err)
+		return nil // Return nil since reconnection is handled asynchronously
 	}
+
+	// Successful listen; reset attempts counter (commit 50e237e alignment)
+	wp.listenAttempts = 0
 
 	// Emit pool:listen:success event (main.ts alignment)
 	wp.eventBus.Emit(events.PoolListenSuccess, map[string]interface{}{
@@ -232,23 +239,11 @@ func (wp *WorkerPool) handleNotifications() {
 				// Mark error as handled to prevent duplicate cleanup
 				errorHandled = true
 
-				// Emit pool:listen:error event (main.ts alignment)
-				wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
-					"workerPool": wp,
-					"error":      err,
-				})
-
-				wp.logger.Error(fmt.Sprintf("Notification error: %v", err))
-
 				// Release current connection before retry
 				cleanup()
 
-				time.Sleep(5 * time.Second) // Retry after error
-
-				// Try to re-establish connection
-				if wp.notifyCtx.Err() == nil {
-					wp.reconnectNotificationListener()
-				}
+				// Apply exponential backoff with jitter (commit 50e237e alignment)
+				wp.reconnectWithExponentialBackoff(err)
 				return
 			}
 
@@ -266,23 +261,61 @@ func (wp *WorkerPool) handleNotifications() {
 }
 
 // reconnectNotificationListener attempts to reconnect the notification listener
-// Inspired by graphile-worker's enhanced error recovery in commit e714bd0
+// Enhanced with exponential backoff (commit 50e237e alignment)
 func (wp *WorkerPool) reconnectNotificationListener() {
 	if wp.notifyCtx.Err() != nil {
 		return // Don't reconnect if context is cancelled
 	}
 
-	// Emit pool:listen:connecting event for reconnection (main.ts alignment)
-	wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
+	// Use exponential backoff for reconnection attempts
+	wp.reconnectWithExponentialBackoff(fmt.Errorf("notification listener disconnected"))
+}
+
+// reconnectWithExponentialBackoff implements exponential backoff for LISTEN connection retries
+// Aligned with graphile-worker commit 50e237e
+func (wp *WorkerPool) reconnectWithExponentialBackoff(err error) {
+	// Emit pool:listen:error event (main.ts alignment)
+	wp.eventBus.Emit(events.PoolListenError, map[string]interface{}{
 		"workerPool": wp,
+		"error":      err,
 	})
 
-	go func() {
-		// Small delay before reconnection attempt
-		time.Sleep(1 * time.Second)
+	wp.listenAttempts++
 
-		if err := wp.startNotificationListener(); err != nil {
-			wp.logger.Error(fmt.Sprintf("Failed to reconnect notification listener: %v", err))
+	// When figuring the next delay we want exponential back-off, but we also
+	// want to avoid the thundering herd problem. For now, we'll add some
+	// randomness to it via the `jitter` variable, this variable is
+	// deliberately weighted towards the higher end of the duration.
+	jitter := 0.5 + math.Sqrt(rand.Float64())/2
+
+	// Backoff (ms): 136, 370, 1005, 2730, 7421, 20172, 54832
+	delayFloat := jitter * math.Min(float64(maxListenDelay/time.Millisecond), 50*math.Exp(float64(wp.listenAttempts)))
+	delay := time.Duration(delayFloat) * time.Millisecond
+
+	wp.logger.Error(fmt.Sprintf("Error with notify listener (trying again in %v): %s", delay, err.Error()))
+
+	// Schedule reconnection attempt
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			if wp.notifyCtx.Err() == nil {
+				// Emit pool:listen:connecting event (main.ts alignment)
+				wp.eventBus.Emit(events.PoolListenConnecting, map[string]interface{}{
+					"workerPool": wp,
+					"attempts":   wp.listenAttempts,
+				})
+
+				if err := wp.startNotificationListener(); err != nil {
+					// If reconnection fails, apply backoff again
+					wp.reconnectWithExponentialBackoff(err)
+				}
+			}
+		case <-wp.notifyCtx.Done():
+			// Context cancelled, stop reconnection attempts
+			return
 		}
 	}()
 }
