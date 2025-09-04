@@ -50,10 +50,19 @@ func ValidateTask(fn interface{}) bool {
 }
 
 // WorkerSharedOptions contains common options for workers and worker pools
-// This mirrors the TypeScript WorkerSharedOptions interface
+// This mirrors the TypeScript WorkerSharedOptions interface which extends SharedOptions
 type WorkerSharedOptions struct {
-	PollInterval *int           `json:"pollInterval,omitempty"` // How long to wait between polling (milliseconds)
-	Logger       *logger.Logger `json:"logger,omitempty"`       // How should messages be logged
+	// Inherited from SharedOptions
+	Logger               *logger.Logger   `json:"logger,omitempty"`               // How should messages be logged
+	Schema               *string          `json:"schema,omitempty"`               // PostgreSQL schema to use
+	ConnectionString     *string          `json:"connectionString,omitempty"`     // PostgreSQL connection string
+	MaxPoolSize          *int             `json:"maxPoolSize,omitempty"`          // Maximum size of PostgreSQL pool
+	NoPreparedStatements *bool            `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
+	Events               *events.EventBus `json:"-"`                              // EventBus for worker events (v0.4.0 alignment)
+	UseNodeTime          *bool            `json:"useNodeTime,omitempty"`          // Use Node's time source rather than PostgreSQL's (default: false)
+
+	// Additional fields for WorkerSharedOptions
+	PollInterval *int `json:"pollInterval,omitempty"` // How long to wait between polling (milliseconds)
 }
 
 // SharedOptions contains common options for pools, workers, and utils

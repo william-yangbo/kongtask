@@ -275,6 +275,7 @@ type WorkerOptions struct {
 	Logger               *logger.Logger   // Custom logger
 	Continuous           bool             // Whether worker runs continuously or once (default: true)
 	NoPreparedStatements bool             // Disable prepared statements for pgBouncer compatibility
+	UseNodeTime          bool             // Use Node's time source instead of PostgreSQL's (commit 5a09a37)
 	ForbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
 	ForbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
 }
