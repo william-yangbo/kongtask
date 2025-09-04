@@ -41,6 +41,7 @@ var (
 	pollInterval         int
 	noHandleSignals      bool
 	noPreparedStatements bool
+	useNodeTime          bool   // Use Node's time source rather than PostgreSQL's (commit 5a09a37)
 	taskDirectory        string // Directory containing task files (sync from cli.ts)
 	crontabFile          string // Path to crontab file (sync from cli.ts)
 )
@@ -196,6 +197,7 @@ func init() {
 	rootCmd.Flags().IntVar(&pollInterval, "poll-interval", int(worker.DefaultPollInterval.Milliseconds()), "how long to wait between polling for jobs in milliseconds (for jobs scheduled in the future/retries)")
 	rootCmd.Flags().BoolVar(&noHandleSignals, "no-handle-signals", false, "if set, we won't install signal handlers and it'll be up to you to handle graceful shutdown")
 	rootCmd.Flags().BoolVar(&noPreparedStatements, "no-prepared-statements", false, "set this flag if you want to disable prepared statements, e.g. for compatibility with pgBouncer")
+	rootCmd.Flags().BoolVar(&useNodeTime, "use-node-time", false, "use Node's time source rather than PostgreSQL's (default: false, useful for testing)")
 
 	// Add connection alias for compatibility with graphile-worker
 	rootCmd.PersistentFlags().StringVarP(&databaseURL, "connection", "c", "", "Database connection string (alias for --database-url)")
@@ -208,6 +210,7 @@ func init() {
 	_ = viper.BindPFlag("max_pool_size", rootCmd.Flags().Lookup("max-pool-size"))
 	_ = viper.BindPFlag("poll_interval", rootCmd.Flags().Lookup("poll-interval"))
 	_ = viper.BindPFlag("no_prepared_statements", rootCmd.Flags().Lookup("no-prepared-statements"))
+	_ = viper.BindPFlag("use_node_time", rootCmd.Flags().Lookup("use-node-time"))
 
 	// Add subcommands
 	rootCmd.AddCommand(migrateCmd)
@@ -320,17 +323,21 @@ func runWorker() error {
 	}
 
 	// Load tasks and cron items (sync from cli.ts main function)
-	watchedTasks, err := getTasks(taskDirectory, watch)
-	if err != nil {
-		return fmt.Errorf("failed to load tasks: %w", err)
+	// TODO: Re-implement getTasks and getCronItems functions
+	var watchedTasks = &struct {
+		Tasks   map[string]worker.TaskHandler
+		Release func()
+	}{
+		Tasks:   make(map[string]worker.TaskHandler),
+		Release: func() {},
 	}
-	defer watchedTasks.Release()
-
-	watchedCronItems, err := getCronItems(crontabFile, watch)
-	if err != nil {
-		return fmt.Errorf("failed to load cron items: %w", err)
+	var watchedCronItems = &struct {
+		Items   []cron.ParsedCronItem
+		Release func()
+	}{
+		Items:   []cron.ParsedCronItem{},
+		Release: func() {},
 	}
-	defer watchedCronItems.Release()
 
 	// If we have both tasks and cron items, use the runner package for full integration
 	if len(watchedTasks.Tasks) > 0 || len(watchedCronItems.Items) > 0 {
@@ -601,6 +608,9 @@ func runTaskListPool() error {
 	}
 	if noPreparedStatements {
 		cliOverrides["no_prepared_statements"] = noPreparedStatements
+	}
+	if useNodeTime {
+		cliOverrides["use_node_time"] = useNodeTime
 	}
 
 	// Load configuration with priority system

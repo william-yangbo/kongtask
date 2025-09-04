@@ -204,7 +204,8 @@ func GetDefaultsConfig() Config {
 // Following graphile-worker's SharedOptions pattern
 type Configuration struct {
 	// SharedOptions equivalent fields
-	Schema string `json:"schema" yaml:"schema"`
+	Schema      string `json:"schema" yaml:"schema"`
+	UseNodeTime bool   `json:"use_node_time" yaml:"use_node_time"`
 
 	// WorkerPoolOptions equivalent fields
 	Concurrency          int           `json:"concurrency" yaml:"concurrency"`
@@ -230,6 +231,7 @@ func (c *Configuration) ToWorkerPoolOptions() WorkerPoolOptions {
 		PollInterval:         c.PollInterval,
 		NoHandleSignals:      c.NoHandleSignals,
 		NoPreparedStatements: c.NoPreparedStatements,
+		UseNodeTime:          c.UseNodeTime,
 		// Logger will be set separately as it's not configurable via file
 	}
 }
@@ -244,6 +246,7 @@ func LoadConfigurationWithOverrides(overrides map[string]interface{}) (*Configur
 	// Convert WorkerDefaults to Configuration
 	config := &Configuration{
 		Schema:               defaults.Schema,
+		UseNodeTime:          false, // Default value (matches graphile-worker default)
 		Concurrency:          defaults.ConcurrentJobs,
 		PollInterval:         time.Duration(defaults.PollInterval) * time.Millisecond,
 		MaxPoolSize:          defaults.MaxPoolSize,
@@ -273,6 +276,9 @@ func LoadConfigurationWithOverrides(overrides map[string]interface{}) (*Configur
 		}
 		if noPreparedStatements, ok := overrides["no_prepared_statements"].(bool); ok {
 			config.NoPreparedStatements = noPreparedStatements
+		}
+		if useNodeTime, ok := overrides["use_node_time"].(bool); ok {
+			config.UseNodeTime = useNodeTime
 		}
 		if databaseURL, ok := overrides["database_url"].(string); ok && databaseURL != "" {
 			config.DatabaseURL = databaseURL

@@ -65,6 +65,7 @@ type SharedOptions struct {
 	MaxPoolSize          *int             `json:"maxPoolSize,omitempty"`          // Maximum size of PostgreSQL pool
 	NoPreparedStatements *bool            `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
 	Events               *events.EventBus `json:"-"`                              // EventBus for worker events (v0.4.0 alignment)
+	UseNodeTime          *bool            `json:"useNodeTime,omitempty"`          // Use Node's time source rather than PostgreSQL's (default: false)
 }
 
 // WorkerInterface represents a job worker

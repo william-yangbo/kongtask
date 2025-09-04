@@ -114,6 +114,7 @@ type Worker struct {
 	noPreparedStatements bool             // Disable prepared statements for pgBouncer compatibility
 	forbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
 	forbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
+	useNodeTime          bool             // Use Node's time source instead of PostgreSQL's (commit 5a09a37)
 }
 
 // NewWorker creates a new worker instance
@@ -196,6 +197,13 @@ func WithForbiddenFlagsFn(fn ForbiddenFlagsFn) WorkerOption {
 func WithEventBus(eventBus *events.EventBus) WorkerOption {
 	return func(w *Worker) {
 		w.eventBus = eventBus
+	}
+}
+
+// WithUseNodeTime sets whether to use Node's time source instead of PostgreSQL's (commit 5a09a37)
+func WithUseNodeTime(useNodeTime bool) WorkerOption {
+	return func(w *Worker) {
+		w.useNodeTime = useNodeTime
 	}
 }
 
@@ -342,14 +350,31 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		forbiddenFlags = flags
 	}
 
-	query := fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2)", w.schema)
+	// Prepare query with optional 'now' parameter for useNodeTime feature (commit 5a09a37)
+	var query string
+	var args []interface{}
+
+	if w.useNodeTime {
+		// Use Node's time source - pass current time as 'now' parameter
+		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2, $3)", w.schema)
+		args = []interface{}{w.workerID, forbiddenFlags, time.Now()}
+	} else {
+		// Use PostgreSQL's time source (default behavior)
+		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2)", w.schema)
+		args = []interface{}{w.workerID, forbiddenFlags}
+	}
 
 	var row pgx.Row
 	if w.noPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
-		row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags)
+		// Note: QueryExecModeSimpleProtocol must be passed separately from args
+		if w.useNodeTime {
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags, time.Now())
+		} else {
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags)
+		}
 	} else {
-		row = conn.QueryRow(ctx, query, w.workerID, forbiddenFlags)
+		row = conn.QueryRow(ctx, query, args...)
 	}
 
 	var job Job

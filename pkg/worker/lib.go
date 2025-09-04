@@ -24,6 +24,7 @@ type CompiledSharedOptions struct {
 	MaxPoolSize         int
 	PollInterval        time.Duration
 	Concurrency         int
+	UseNodeTime         bool // Use Node's time source rather than PostgreSQL's (commit 5a09a37)
 }
 
 // ProcessSharedOptionsSettings provides settings for processing shared options
@@ -42,7 +43,7 @@ var (
 func generateCacheKey(options *WorkerPoolOptions) string {
 	hasPgPool := options.PgPool != nil
 	hasEvents := options.Events != nil
-	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d|hasPgPool:%t|hasEvents:%t",
+	return fmt.Sprintf("schema:%s|concurrency:%d|poll:%v|pool:%d|errors:%d|hasPgPool:%t|hasEvents:%t|useNodeTime:%t",
 		options.Schema,
 		options.Concurrency,
 		options.PollInterval,
@@ -50,6 +51,7 @@ func generateCacheKey(options *WorkerPoolOptions) string {
 		options.MaxContiguousErrors,
 		hasPgPool,
 		hasEvents,
+		options.UseNodeTime,
 	)
 }
 
@@ -84,6 +86,7 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 				MaxPoolSize:         cached.MaxPoolSize,
 				PollInterval:        cached.PollInterval,
 				Concurrency:         cached.Concurrency,
+				UseNodeTime:         cached.UseNodeTime,
 			}
 		}
 		return cached
@@ -106,6 +109,7 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 		MaxPoolSize:         options.MaxPoolSize,
 		PollInterval:        options.PollInterval,
 		Concurrency:         options.Concurrency,
+		UseNodeTime:         options.UseNodeTime,
 	}
 
 	// Cache the compiled options
@@ -124,6 +128,7 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 			MaxPoolSize:         compiled.MaxPoolSize,
 			PollInterval:        compiled.PollInterval,
 			Concurrency:         compiled.Concurrency,
+			UseNodeTime:         compiled.UseNodeTime,
 		}
 	}
 

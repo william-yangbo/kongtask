@@ -26,6 +26,7 @@ type WorkerPoolOptions struct {
 	PgPool               *pgxpool.Pool    // Existing database pool (alternative to DatabaseURL)
 	NoPreparedStatements bool             // If set true, disable prepared statements for pgBouncer compatibility
 	Events               *events.EventBus // EventBus for worker events (lib.ts alignment)
+	UseNodeTime          bool             // Use Node's time source rather than PostgreSQL's (commit 5a09a37 alignment)
 }
 
 // generatePoolID generates a cryptographically secure random pool identifier
