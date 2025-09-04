@@ -16,12 +16,31 @@ func NewMatcher() Matcher {
 func (m *DefaultMatcher) Matches(item ParsedCronItem, t time.Time) bool {
 	digest := m.DigestTimestamp(t)
 
-	// Check each time component
-	return m.containsInt(item.Minutes, digest.Minute) &&
-		m.containsInt(item.Hours, digest.Hour) &&
-		m.containsInt(item.Dates, digest.Date) &&
-		m.containsInt(item.Months, digest.Month) &&
-		m.containsInt(item.DOWs, digest.DOW)
+	// Check minute, hour, and month - these must all match
+	if !m.containsInt(item.Minutes, digest.Minute) ||
+		!m.containsInt(item.Hours, digest.Hour) ||
+		!m.containsInt(item.Months, digest.Month) {
+		return false
+	}
+
+	// Cron has special behavior for date and day-of-week:
+	// If both are exclusionary (not "*"), then matching either one passes
+	dateIsExclusionary := len(item.Dates) != 31 // Not all days 1-31
+	dowIsExclusionary := len(item.DOWs) != 7    // Not all days 0-6
+
+	if dateIsExclusionary && dowIsExclusionary {
+		// Both date and DOW are specified, so match either one
+		return m.containsInt(item.Dates, digest.Date) || m.containsInt(item.DOWs, digest.DOW)
+	} else if dateIsExclusionary {
+		// Only date is specified
+		return m.containsInt(item.Dates, digest.Date)
+	} else if dowIsExclusionary {
+		// Only DOW is specified
+		return m.containsInt(item.DOWs, digest.DOW)
+	} else {
+		// Both are "*", so always match
+		return true
+	}
 }
 
 // DigestTimestamp extracts time components from a timestamp
