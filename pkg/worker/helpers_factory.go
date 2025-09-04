@@ -17,7 +17,7 @@ func MakeAddJob(withPgClient WithPgClient) AddJobFunction {
 }
 
 // MakeAddJobWithOptions creates an AddJob function with options and WithPgClient function
-// This mirrors the TypeScript makeAddJob function exactly with schema support
+// This mirrors the TypeScript makeAddJob function exactly with schema and useNodeTime support
 func MakeAddJobWithOptions(options *SharedOptions, withPgClient WithPgClient) AddJobFunction {
 	return func(ctx context.Context, identifier string, payload interface{}, specs ...TaskSpec) error {
 		var spec TaskSpec
@@ -31,10 +31,20 @@ func MakeAddJobWithOptions(options *SharedOptions, withPgClient WithPgClient) Ad
 				return fmt.Errorf("failed to marshal payload: %w", err)
 			}
 
-			// Get escaped schema name (default to "graphile_worker")
+			// Get escaped schema name, useNodeTime setting, and time provider from options
 			schema := "graphile_worker"
-			if options != nil && options.Schema != nil {
-				schema = *options.Schema
+			useNodeTime := false
+			var timeProvider TimeProvider = NewRealTimeProvider() // Default to real time
+			if options != nil {
+				if options.Schema != nil {
+					schema = *options.Schema
+				}
+				if options.UseNodeTime != nil {
+					useNodeTime = *options.UseNodeTime
+				}
+				if options.TimeProvider != nil {
+					timeProvider = options.TimeProvider
+				}
 			}
 			// Simple identifier escaping (Go equivalent of Client.prototype.escapeIdentifier)
 			escapedSchema := `"` + schema + `"`
@@ -60,9 +70,15 @@ func MakeAddJobWithOptions(options *SharedOptions, withPgClient WithPgClient) Ad
 				queueName = spec.QueueName
 			}
 
+			// Handle runAt with useNodeTime logic (matches TypeScript helpers.ts exactly)
 			if spec.RunAt != nil {
+				// If there's an explicit run at, use that
 				runAtStr = &[]string{spec.RunAt.Format("2006-01-02T15:04:05Z07:00")}[0]
+			} else if useNodeTime {
+				// If we've been told to use Node time, use the time provider (supports testing)
+				runAtStr = &[]string{timeProvider.Now().Format("2006-01-02T15:04:05Z07:00")}[0]
 			}
+			// Otherwise pass nil and the function will use `now()` internally
 
 			if spec.MaxAttempts != nil {
 				maxAttempts = spec.MaxAttempts

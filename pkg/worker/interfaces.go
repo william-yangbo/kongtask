@@ -60,6 +60,7 @@ type WorkerSharedOptions struct {
 	NoPreparedStatements *bool            `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
 	Events               *events.EventBus `json:"-"`                              // EventBus for worker events (v0.4.0 alignment)
 	UseNodeTime          *bool            `json:"useNodeTime,omitempty"`          // Use Node's time source rather than PostgreSQL's (default: false)
+	TimeProvider         TimeProvider     `json:"-"`                              // Time provider for useNodeTime feature (testing support)
 
 	// Additional fields for WorkerSharedOptions
 	PollInterval *int `json:"pollInterval,omitempty"` // How long to wait between polling (milliseconds)
@@ -75,6 +76,7 @@ type SharedOptions struct {
 	NoPreparedStatements *bool            `json:"noPreparedStatements,omitempty"` // Disable prepared statements for pgBouncer compatibility
 	Events               *events.EventBus `json:"-"`                              // EventBus for worker events (v0.4.0 alignment)
 	UseNodeTime          *bool            `json:"useNodeTime,omitempty"`          // Use Node's time source rather than PostgreSQL's (default: false)
+	TimeProvider         TimeProvider     `json:"-"`                              // Time provider for useNodeTime feature (testing support)
 }
 
 // WorkerInterface represents a job worker

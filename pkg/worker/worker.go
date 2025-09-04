@@ -115,6 +115,7 @@ type Worker struct {
 	forbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
 	forbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
 	useNodeTime          bool             // Use Node's time source instead of PostgreSQL's (commit 5a09a37)
+	timeProvider         TimeProvider     // Time provider for useNodeTime feature (testing support)
 }
 
 // NewWorker creates a new worker instance
@@ -130,7 +131,8 @@ func NewWorker(pool *pgxpool.Pool, schema string, opts ...WorkerOption) *Worker 
 		contiguousErrors: 0,
 		active:           true,
 		releaseCh:        make(chan struct{}),
-		continuous:       true, // Default to continuous mode
+		continuous:       true,                  // Default to continuous mode
+		timeProvider:     NewRealTimeProvider(), // Default to real time
 	}
 
 	// Apply options
@@ -204,6 +206,13 @@ func WithEventBus(eventBus *events.EventBus) WorkerOption {
 func WithUseNodeTime(useNodeTime bool) WorkerOption {
 	return func(w *Worker) {
 		w.useNodeTime = useNodeTime
+	}
+}
+
+// WithTimeProvider sets a custom time provider for testing
+func WithTimeProvider(timeProvider TimeProvider) WorkerOption {
+	return func(w *Worker) {
+		w.timeProvider = timeProvider
 	}
 }
 
@@ -358,7 +367,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	if w.useNodeTime {
 		// Use Node's time source - pass current time as 'now' parameter
 		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2, $3)", w.schema)
-		args = []interface{}{w.workerID, forbiddenFlags, time.Now()}
+		args = []interface{}{w.workerID, forbiddenFlags, w.timeProvider.Now()}
 	} else {
 		// Use PostgreSQL's time source (default behavior)
 		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2)", w.schema)
@@ -370,7 +379,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
 		// Note: QueryExecModeSimpleProtocol must be passed separately from args
 		if w.useNodeTime {
-			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags, time.Now())
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags, w.timeProvider.Now())
 		} else {
 			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags)
 		}

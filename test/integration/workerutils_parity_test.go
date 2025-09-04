@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/william-yangbo/kongtask/internal/testutil"
@@ -105,4 +107,84 @@ func TestWorkerUtilsQuickAddJob(t *testing.T) {
 	// Assert that it has an entry in jobs (matching TypeScript verification)
 	jobCount := testutil.JobCount(t, pool, "graphile_worker")
 	assert.Equal(t, 1, jobCount, "Should have exactly 1 job")
+}
+
+// TestWorkerUtilsAddJobRespectsUseNodeTime corresponds to workerUtils.addJob.test.ts "adding job respects useNodeTime"
+// This test now includes full time mocking integration with the TimeProvider
+func TestWorkerUtilsAddJobRespectsUseNodeTime(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Reset database
+	testutil.Reset(t, pool, "graphile_worker")
+
+	// Set up fake timers (matching TypeScript: await setTime(REFERENCE_TIMESTAMP))
+	timer := testutil.GetGlobalFakeTimer()
+	referenceTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	timer.SetTime(referenceTime)
+
+	// Advance fake time by 1 hour (matching TypeScript: const timeOfAddJob = REFERENCE_TIMESTAMP + 1 * HOUR)
+	timeOfAddJob := referenceTime.Add(time.Hour)
+	timer.SetTime(timeOfAddJob)
+
+	// Create time provider for testing
+	timeProvider := NewTestTimeProvider(timer)
+
+	// Test with useNodeTime=true and time provider
+	useNodeTimeTrue := true
+	schema := "graphile_worker"
+	options := &worker.SharedOptions{
+		UseNodeTime:  &useNodeTimeTrue,
+		Schema:       &schema,
+		TimeProvider: timeProvider,
+	}
+
+	addJob := worker.MakeAddJobWithOptions(options, func(ctx context.Context, callback func(tx pgx.Tx) error) error {
+		conn, err := pool.Acquire(ctx)
+		if err != nil {
+			return err
+		}
+		defer conn.Release()
+
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		if err := callback(tx); err != nil {
+			return err
+		}
+
+		return tx.Commit(ctx)
+	})
+
+	// Add job without explicit runAt (this should trigger useNodeTime logic with mocked time)
+	err := addJob(ctx, "job1", map[string]interface{}{"a": 1}, worker.TaskSpec{})
+	require.NoError(t, err)
+
+	// Assert that job was created (matching TypeScript verification)
+	jobCount := testutil.JobCount(t, pool, "graphile_worker")
+	assert.Equal(t, 1, jobCount, "Should have exactly 1 job")
+
+	// Verify run_at is within a couple of seconds of timeOfAddJob (matching TypeScript assertions)
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	var runAt time.Time
+	err = conn.QueryRow(ctx, "SELECT run_at FROM graphile_worker.jobs WHERE task_identifier = $1", "job1").Scan(&runAt)
+	require.NoError(t, err)
+
+	// Assert the run_at is within a couple of seconds of timeOfAddJob (matching TypeScript logic)
+	// even though PostgreSQL has a NOW() that's many months later
+	timeDiff := runAt.Sub(timeOfAddJob)
+	assert.True(t, timeDiff >= -2*time.Second, "run_at should be within 2 seconds of mock time (got %v)", timeDiff)
+	assert.True(t, timeDiff <= 2*time.Second, "run_at should be within 2 seconds of mock time (got %v)", timeDiff)
+
+	t.Logf("Mock time: %v", timeOfAddJob)
+	t.Logf("Job run_at: %v", runAt)
+	t.Logf("Time difference: %v", timeDiff)
+	t.Logf("✅ Full time mocking integration working: useNodeTime respects TimeProvider!")
 }

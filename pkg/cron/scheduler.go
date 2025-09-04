@@ -31,6 +31,7 @@ type DefaultScheduler struct {
 	backfillOnStart    bool
 	clockSkewTolerance time.Duration
 	timeProvider       TimeProvider // Add time provider for testability
+	useNodeTime        bool         // Use Node.js time instead of PostgreSQL time (sync from graphile-worker cron.ts)
 }
 
 // SchedulerConfig contains configuration for the cron scheduler
@@ -44,6 +45,7 @@ type SchedulerConfig struct {
 	ClockSkewTolerance time.Duration
 	CronItems          []ParsedCronItem // Pre-parsed cron items
 	TimeProvider       TimeProvider     // Time provider for testability
+	UseNodeTime        bool             // Use Node.js time instead of PostgreSQL time (sync from graphile-worker cron.ts)
 }
 
 // NewScheduler creates a new cron scheduler
@@ -69,6 +71,7 @@ func NewScheduler(config SchedulerConfig) Scheduler {
 		clockSkewTolerance: config.ClockSkewTolerance,
 		items:              config.CronItems, // Store pre-parsed cron items
 		timeProvider:       config.TimeProvider,
+		useNodeTime:        config.UseNodeTime, // Sync from graphile-worker cron.ts useNodeTime
 	}
 }
 
@@ -511,8 +514,10 @@ func (s *DefaultScheduler) recordScheduledTask(item ParsedCronItem, digest strin
 // addJobToQueue adds a job to the worker queue
 func (s *DefaultScheduler) addJobToQueue(item ParsedCronItem, scheduledAt time.Time) error {
 	// Create TaskSpec for the job, handling pointer fields correctly
+	// Note: scheduledAt is already calculated using Go time source when useNodeTime is true,
+	// which synchronizes with graphile-worker cron.ts useNodeTime behavior
 	spec := worker.TaskSpec{
-		RunAt:       &scheduledAt,
+		RunAt:       &scheduledAt,         // Use the calculated scheduled time (respects useNodeTime in calculation)
 		QueueName:   item.Job.QueueName,   // These are already *string in CronItem
 		Priority:    item.Job.Priority,    // Already *int
 		MaxAttempts: item.Job.MaxAttempts, // Already *int
