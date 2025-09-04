@@ -151,7 +151,12 @@ func TestWorkerUtilsAddJobRespectsUseNodeTime(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback(ctx)
+		defer func() {
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+				// Log rollback error but don't override the main error
+				t.Logf("Warning: failed to rollback transaction: %v", rollbackErr)
+			}
+		}()
 
 		if err := callback(tx); err != nil {
 			return err

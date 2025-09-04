@@ -34,7 +34,7 @@ func MakeAddJobWithOptions(options *SharedOptions, withPgClient WithPgClient) Ad
 			// Get escaped schema name, useNodeTime setting, and time provider from options
 			schema := "graphile_worker"
 			useNodeTime := false
-			var timeProvider TimeProvider = NewRealTimeProvider() // Default to real time
+			var timeProvider = NewRealTimeProvider() // Default to real time
 			if options != nil {
 				if options.Schema != nil {
 					schema = *options.Schema

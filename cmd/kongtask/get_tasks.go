@@ -12,6 +12,8 @@ import (
 )
 
 // titleCase converts the first character to uppercase (replacement for deprecated strings.Title)
+//
+//nolint:unused
 func titleCase(s string) string {
 	if len(s) == 0 {
 		return s
@@ -29,6 +31,8 @@ type WatchedTaskList struct {
 
 // getTasks loads tasks from a directory (simplified version of graphile-worker getTasks.ts)
 // TODO: Implement full watch mode functionality
+//
+//nolint:unused
 func getTasks(taskDirectory string, watch bool) (*WatchedTaskList, error) {
 	if taskDirectory == "" {
 		taskDirectory = "./tasks"
@@ -85,6 +89,8 @@ func getTasks(taskDirectory string, watch bool) (*WatchedTaskList, error) {
 }
 
 // loadTaskFromPlugin loads a task handler from a Go plugin file
+//
+//nolint:unused
 func loadTaskFromPlugin(tasks map[string]worker.TaskHandler, pluginPath, taskName string) error {
 	// Load the plugin
 	p, err := plugin.Open(pluginPath)

@@ -1,3 +1,4 @@
+//nolint:errcheck
 package env_test
 
 import (

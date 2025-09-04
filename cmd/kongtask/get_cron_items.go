@@ -17,6 +17,8 @@ type WatchedCronItems struct {
 
 // getCronItems loads cron items from a crontab file (simplified version of graphile-worker getCronItems.ts)
 // TODO: Implement full watch mode functionality
+//
+//nolint:unused
 func getCronItems(crontabFile string, watch bool) (*WatchedCronItems, error) {
 	if crontabFile == "" {
 		crontabFile = "./crontab"
