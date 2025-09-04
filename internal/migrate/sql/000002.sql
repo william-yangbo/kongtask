@@ -35,7 +35,7 @@ begin
       values(
         identifier,
         payload,
-        coalesce(queue_name, public.gen_random_uuid()::text),
+        queue_name,
         run_at,
         max_attempts,
         job_key
@@ -76,7 +76,7 @@ begin
     values(
       identifier,
       payload,
-      coalesce(queue_name, public.gen_random_uuid()::text),
+      queue_name,
       run_at,
       max_attempts,
       job_key

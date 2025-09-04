@@ -9,6 +9,13 @@ High-performance task queue implementation for Go, compatible with [graphile-wor
 - 🗓️ **Cron Scheduling**: Supports cron-format scheduled tasks
 - ⚡ **Easy to Use**: Simple API design for quick onboarding
 
+> **Note**: As of version 0.13.0, kongtask no longer requires the `pgcrypto` extension (following graphile-worker v0.13.0). Existing installations can safely remove it using `DROP EXTENSION pgcrypto;` after updating.
+
+## Requirements
+
+- **PostgreSQL**: 12+
+- **Go**: 1.19+
+
 ## Quick Start
 
 ### Installation

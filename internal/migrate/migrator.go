@@ -52,9 +52,8 @@ func NewMigrator(pool *pgxpool.Pool, schema string) *Migrator {
 // installSchema installs the base database schema (mirrors TypeScript installSchema function)
 func (m *Migrator) installSchema(ctx context.Context, conn *pgxpool.Conn) error {
 	// Create the schema with the configured name
+	// Note: Removed pgcrypto dependency as of graphile-worker v0.13.0 (commit c84f334)
 	schemaSQL := fmt.Sprintf(`
-		CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
-		CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 		CREATE SCHEMA %s;
 		CREATE TABLE %s.migrations(
 			id int PRIMARY KEY,

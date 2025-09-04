@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.13.0] - 2025-09-05
+
+### Changed
+
+- **BREAKING**: Removed dependency on `pgcrypto` PostgreSQL extension (sync from graphile-worker v0.13.0)
+  - The `jobs.queue_name` column no longer has a default value
+  - If you have a pre-existing installation and wish to uninstall `pgcrypto`, you can do so manually by running `DROP EXTENSION pgcrypto;` _after_ updating to the latest schema
+  - This change reduces external dependencies and aligns with modern PostgreSQL best practices
+  - Migration 000010 handles the schema changes automatically
+
+### Technical Details
+
+- Updated migration files to remove `gen_random_uuid()` usage
+- Modified `add_job` function signatures to accept `null` queue_name instead of generated UUID
+- Removed `pgcrypto` extension installation from schema setup
+- Updated tests to expect 10 migrations instead of 9
+
+## Previous Versions
+
+Previous changes were not documented in this changelog format.

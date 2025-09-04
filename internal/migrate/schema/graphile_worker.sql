@@ -18,7 +18,7 @@ CREATE TABLE graphile_worker.job_queues (
 -- Table: jobs
 CREATE TABLE graphile_worker.jobs (
     id bigint(64) NOT NULL DEFAULT nextval('graphile_worker.jobs_id_seq'::regclass),
-    queue_name text DEFAULT (public.gen_random_uuid())::text,
+    queue_name text,
     task_identifier text NOT NULL,
     payload json NOT NULL DEFAULT '{}'::json,
     priority integer(32) NOT NULL DEFAULT 0,
