@@ -624,7 +624,7 @@ func (w *Worker) ProcessJob(ctx context.Context, job *Job) error {
 			}
 		}
 
-		jobLogger.Error(fmt.Sprintf("Job %s failed: %v (%.2fms)", job.ID, err, durationMs))
+		jobLogger.Error(fmt.Sprintf("Job %s failed: %v (%.2fms)\nattempt (%d of %d)", job.ID, err, durationMs, job.AttemptCount, job.MaxAttempts))
 		if failErr := w.FailJob(ctx, job.ID, err.Error()); failErr != nil {
 			jobLogger.Error(fmt.Sprintf("Failed to mark job %s as failed: %v", job.ID, failErr))
 			return fmt.Errorf("failed to release job '%s' after failure '%s': %w", job.ID, err.Error(), failErr)
