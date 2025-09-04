@@ -7,6 +7,7 @@ KongTask supports triggering recurring tasks according to a cron-like schedule. 
 - **Guaranteed Execution**: Thanks to ACID-compliant transactions, no duplicate task schedules will occur
 - **Backfill Support**: Can backfill missed jobs if desired (e.g. if the Worker wasn't running when the job was due to be scheduled)
 - **Regular Job Queue**: Schedules tasks using KongTask's regular job queue, so you get all the regular features such as exponential back-off on failure
+- **Distributed Workers**: Works reliably even when running multiple workers (see "Distributed Crontab" below)
 - **UTC Only**: All timestamps are handled in UTC for consistency
 
 > **Note**: It is not intended that you add recurring tasks for each of your individual application users. Instead, you should have relatively few recurring tasks, and those tasks can create additional jobs for individual users (or process multiple users) if necessary.
@@ -254,6 +255,26 @@ Common crontab parsing errors and their solutions:
 # Correct JSON syntax
 * * * * * task {"valid": "json"}
 ```
+
+## Distributed Crontab
+
+**TL;DR**: When running identical crontabs on multiple workers, no special action is necessary - it Just Works™
+
+When you run multiple workers with the same crontab files, the first worker that attempts to queue a particular cron job will succeed and the other workers will take no action. This is thanks to SQL ACID-compliant transactions and the `known_crontabs` lock table.
+
+If your workers have different crontabs, then you must be careful to ensure that the cron items each have unique identifiers. The easiest way to do this is to specify the identifiers yourself using the `id=` option:
+
+```crontab
+# Worker 1 crontab
+0 */2 * * * email_task ?id=worker1_email
+0 */3 * * * cleanup_task ?id=worker1_cleanup
+
+# Worker 2 crontab
+0 */2 * * * email_task ?id=worker2_email
+0 */4 * * * backup_task ?id=worker2_backup
+```
+
+Should you forget to specify unique IDs for overlapping timestamps, one of the cron tasks will schedule but the others will not.
 
 ## Best Practices
 
