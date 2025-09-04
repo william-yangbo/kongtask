@@ -1,11 +1,9 @@
 package worker
 
 import (
-	"context"
 	"errors"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/william-yangbo/kongtask/pkg/logger"
 )
 
@@ -104,29 +102,6 @@ func TestHandleClientError(t *testing.T) {
 
 	// Note: In a real test environment, we would capture log output
 	// For now, we just verify the function runs without panic
-}
-
-// MockPoolForErrorHandling provides a mock pool for testing error handling
-type MockPoolForErrorHandling struct {
-	acquireErr error
-	mockConn   *MockConnForErrorHandling
-}
-
-func (p *MockPoolForErrorHandling) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
-	if p.acquireErr != nil {
-		return nil, p.acquireErr
-	}
-	// Return a mock connection (this is simplified for testing)
-	return nil, nil
-}
-
-// MockConnForErrorHandling provides a mock connection for testing
-type MockConnForErrorHandling struct {
-	releaseErr error
-}
-
-func (c *MockConnForErrorHandling) Release() {
-	// Mock release - do nothing for test
 }
 
 // TestWithPgClientErrorHandling tests the enhanced connection error handling
