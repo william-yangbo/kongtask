@@ -64,4 +64,7 @@ func applyDefaultOptions(options *WorkerPoolOptions) {
 	if options.MaxContiguousErrors == 0 {
 		options.MaxContiguousErrors = MaxContiguousErrors
 	}
+	// UseNodeTime defaults to false (matches graphile-worker default)
+	// Note: Go zero value for bool is false, so no explicit setting needed
+	// but we document this behavior for clarity
 }

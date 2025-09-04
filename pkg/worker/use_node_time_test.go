@@ -29,6 +29,26 @@ func TestUseNodeTimeConfiguration(t *testing.T) {
 	}
 }
 
+// TestUseNodeTimeDefaults tests that UseNodeTime defaults to false like graphile-worker
+func TestUseNodeTimeDefaults(t *testing.T) {
+	// Test that Go zero value for bool matches graphile-worker default (false)
+	options := &WorkerPoolOptions{
+		Schema: "test_schema",
+		// UseNodeTime not explicitly set - should default to false
+	}
+
+	applyDefaultOptions(options)
+
+	if options.UseNodeTime {
+		t.Errorf("Expected UseNodeTime to default to false after applyDefaultOptions, got %v", options.UseNodeTime)
+	}
+
+	compiled := ProcessSharedOptions(options, nil)
+	if compiled.UseNodeTime {
+		t.Errorf("Expected compiled UseNodeTime to be false when not explicitly set, got %v", compiled.UseNodeTime)
+	}
+}
+
 // TestUseNodeTimeWithWorkerOption tests WithUseNodeTime option function
 func TestUseNodeTimeWithWorkerOption(t *testing.T) {
 	worker := &Worker{
