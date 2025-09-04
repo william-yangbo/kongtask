@@ -1,6 +1,17 @@
 # KongTask
 
-KongTask## Recent Updates (v0.10.0)
+## Recent Updates (v0.11.1)
+
+KongTask v0.11.1 focuses on stability and configuration ergonomics:
+
+- 🛡️ Enhanced client error handling: synced with graphile-worker commit 9d0362c to log unexpected errors from checked-out connections and better distinguish idle vs active connection errors
+- 🌐 Env configuration UX: introduced KONGTASK\__ env prefix with clear priority and fallback to DATABASE_URL and PG_ variables; comprehensive docs and tests
+- 🧪 Quality: expanded unit/integration tests, tightened lint rules, and ensured zero regressions
+- 🔍 Pool health: maintained background health checks for pooled connections with clear error logging
+
+See details in docs/SYNC_9d0362c_REPORT.md and docs/ENVIRONMENT.md.
+
+## Recent Updates (v0.10.0)
 
 KongTask v0.10.0 brings comprehensive error handling improvements and infrastructure enhancements, fully aligning with graphile-worker's latest stability features:
 
