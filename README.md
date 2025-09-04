@@ -36,7 +36,7 @@ KongTask v0.9.0 brought major cron scheduling capabilities and logging improveme
 
 The cron scheduling system provides production-ready task automation with full compatibility to graphile-worker patterns.performance job queue implementation for Go, providing core API compatibility with [graphile-worker](https://github.com/graphile/worker) v0.10.0. It delivers PostgreSQL-backed job processing with excellent performance and reliability.
 
-> **Compatibility Status**: Core features aligned with graphile-worker v0.9.0, including complete cron scheduling system and enhanced error handling from v0.10.0 (commit e714bd0). Some TypeScript-specific features are not supported (see limitations below).
+> **Compatibility Status**: Core features aligned with graphile-worker v0.10.0, including complete cron scheduling system and enhanced error handling (commits e714bd0 and 9d0362c). Some TypeScript-specific features are not supported (see limitations below).
 
 ## Features
 
