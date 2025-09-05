@@ -262,14 +262,29 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 		bigintIDs[i] = intID
 	}
 
-	conn, err := wu.pool.Acquire(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to acquire connection: %w", err)
-	}
-	defer conn.Release()
+	query := fmt.Sprintf(`
+		DELETE FROM %s._private_jobs
+		WHERE id = ANY($1::bigint[])
+		RETURNING
+			id::text,
+			queue_name,
+			task_identifier,
+			payload,
+			priority,
+			run_at,
+			attempts,
+			max_attempts,
+			last_error,
+			created_at,
+			updated_at,
+			key,
+			revision,
+			flags,
+			locked_at,
+			locked_by;
+	`, wu.schema)
 
-	query := fmt.Sprintf("SELECT * FROM %s.complete_jobs($1)", wu.schema)
-	rows, err := conn.Query(ctx, query, bigintIDs)
+	rows, err := wu.pool.Query(ctx, query, bigintIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete jobs: %w", err)
 	}
@@ -278,19 +293,53 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 	var jobs []Job
 	for rows.Next() {
 		var job Job
-		var queueName, lastError, key, lockedBy *string
+		var id int64
+		var queueName *string
+		var taskIdentifier string
+		var payload json.RawMessage
+		var priority int
+		var runAt time.Time
+		var attempts, maxAttempts int
+		var lastError *string
+		var createdAt, updatedAt time.Time
+		var key *string
+		var revision *int
 		var flags *json.RawMessage
 		var lockedAt *time.Time
-		var id int
+		var lockedBy *string
 
 		err := rows.Scan(
-			&id, &queueName, &job.TaskIdentifier, &job.Payload,
-			&job.Priority, &job.RunAt, &job.AttemptCount, &job.MaxAttempts,
-			&lastError, &job.CreatedAt, &job.UpdatedAt,
-			&key, &lockedAt, &lockedBy, &job.Revision, &flags,
+			&id,
+			&queueName,
+			&taskIdentifier,
+			&payload,
+			&priority,
+			&runAt,
+			&attempts,
+			&maxAttempts,
+			&lastError,
+			&createdAt,
+			&updatedAt,
+			&key,
+			&revision,
+			&flags,
+			&lockedAt,
+			&lockedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan job row: %w", err)
+		}
+
+		job.TaskIdentifier = taskIdentifier
+		job.Payload = payload
+		job.Priority = priority
+		job.RunAt = runAt
+		job.AttemptCount = attempts
+		job.MaxAttempts = maxAttempts
+		job.CreatedAt = createdAt
+		job.UpdatedAt = updatedAt
+		if revision != nil {
+			job.Revision = *revision
 		}
 
 		// Convert int id to string for v0.4.0 compatibility
@@ -305,7 +354,11 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
 				return nil, fmt.Errorf("failed to parse flags: %w", err)
 			}
-			job.Flags = flagsMap
+			// Convert to map[string]interface{}
+			job.Flags = make(map[string]interface{})
+			for k, v := range flagsMap {
+				job.Flags[k] = v
+			}
 		} else {
 			job.Flags = nil
 		}
@@ -381,7 +434,11 @@ func (wu *WorkerUtils) PermanentlyFailJobs(ctx context.Context, jobIDs []string,
 			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
 				return nil, fmt.Errorf("failed to parse flags: %w", err)
 			}
-			job.Flags = flagsMap
+			// Convert to map[string]interface{}
+			job.Flags = make(map[string]interface{})
+			for k, v := range flagsMap {
+				job.Flags[k] = v
+			}
 		} else {
 			job.Flags = nil
 		}
@@ -460,7 +517,11 @@ func (wu *WorkerUtils) RescheduleJobs(ctx context.Context, jobIDs []string, opti
 			if err := json.Unmarshal(*flags, &flagsMap); err != nil {
 				return nil, fmt.Errorf("failed to parse flags: %w", err)
 			}
-			job.Flags = flagsMap
+			// Convert to map[string]interface{}
+			job.Flags = make(map[string]interface{})
+			for k, v := range flagsMap {
+				job.Flags[k] = v
+			}
 		} else {
 			job.Flags = nil
 		}

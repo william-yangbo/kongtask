@@ -14,17 +14,19 @@ import (
 )
 
 // CompiledSharedOptions represents processed shared options with compiled values
-// This mirrors graphile-worker's CompiledSharedOptions interface
+// This mirrors graphile-worker's CompiledSharedOptions interface (commit b62d3ab)
 type CompiledSharedOptions struct {
-	Events              *events.EventBus `json:"-"`
-	Logger              *logger.Logger
-	WorkerSchema        string
-	EscapedWorkerSchema string
-	MaxContiguousErrors int
-	MaxPoolSize         int
-	PollInterval        time.Duration
-	Concurrency         int
-	UseNodeTime         bool // Use Node's time source rather than PostgreSQL's (commit 5a09a37)
+	Events               *events.EventBus `json:"-"`
+	Logger               *logger.Logger
+	WorkerSchema         string
+	EscapedWorkerSchema  string
+	MaxContiguousErrors  int
+	MaxPoolSize          int
+	PollInterval         time.Duration
+	Concurrency          int
+	UseNodeTime          bool               // Use Node's time source rather than PostgreSQL's (commit 5a09a37)
+	Options              *WorkerPoolOptions // Original options (commit b62d3ab addition)
+	NoPreparedStatements bool               // Added for SQL module support
 }
 
 // ProcessSharedOptionsSettings provides settings for processing shared options
@@ -101,15 +103,17 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 
 	// Compile new options
 	compiled := &CompiledSharedOptions{
-		Events:              eventBus,
-		Logger:              options.Logger,
-		WorkerSchema:        options.Schema,
-		EscapedWorkerSchema: fmt.Sprintf("\"%s\"", options.Schema), // Simple escaping for now
-		MaxContiguousErrors: options.MaxContiguousErrors,
-		MaxPoolSize:         options.MaxPoolSize,
-		PollInterval:        options.PollInterval,
-		Concurrency:         options.Concurrency,
-		UseNodeTime:         options.UseNodeTime,
+		Events:               eventBus,
+		Logger:               options.Logger,
+		WorkerSchema:         options.Schema,
+		EscapedWorkerSchema:  fmt.Sprintf("\"%s\"", options.Schema), // Simple escaping for now
+		MaxContiguousErrors:  options.MaxContiguousErrors,
+		MaxPoolSize:          options.MaxPoolSize,
+		PollInterval:         options.PollInterval,
+		Concurrency:          options.Concurrency,
+		UseNodeTime:          options.UseNodeTime,
+		Options:              options, // Store original options (commit b62d3ab)
+		NoPreparedStatements: options.NoPreparedStatements,
 	}
 
 	// Cache the compiled options
@@ -120,15 +124,17 @@ func ProcessSharedOptions(options *WorkerPoolOptions, settings *ProcessSharedOpt
 	// Apply scope if requested
 	if settings.Scope != nil {
 		return &CompiledSharedOptions{
-			Events:              compiled.Events,
-			Logger:              compiled.Logger.Scope(*settings.Scope),
-			WorkerSchema:        compiled.WorkerSchema,
-			EscapedWorkerSchema: compiled.EscapedWorkerSchema,
-			MaxContiguousErrors: compiled.MaxContiguousErrors,
-			MaxPoolSize:         compiled.MaxPoolSize,
-			PollInterval:        compiled.PollInterval,
-			Concurrency:         compiled.Concurrency,
-			UseNodeTime:         compiled.UseNodeTime,
+			Events:               compiled.Events,
+			Logger:               compiled.Logger.Scope(*settings.Scope),
+			WorkerSchema:         compiled.WorkerSchema,
+			EscapedWorkerSchema:  compiled.EscapedWorkerSchema,
+			MaxContiguousErrors:  compiled.MaxContiguousErrors,
+			MaxPoolSize:          compiled.MaxPoolSize,
+			PollInterval:         compiled.PollInterval,
+			Concurrency:          compiled.Concurrency,
+			UseNodeTime:          compiled.UseNodeTime,
+			Options:              compiled.Options,
+			NoPreparedStatements: compiled.NoPreparedStatements,
 		}
 	}
 

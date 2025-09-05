@@ -43,25 +43,31 @@ func generateWorkerID() string {
 	return fmt.Sprintf("worker-%s", hex.EncodeToString(randomBytes))
 }
 
-// Job represents a job from the database (v0.4.0 alignment)
+// Job represents a job instance
 type Job struct {
-	ID             string          `json:"id"`         // Changed from int to string in v0.4.0
-	QueueName      *string         `json:"queue_name"` // Changed to nullable in v0.4.0
-	TaskIdentifier string          `json:"task_identifier"`
-	Payload        json.RawMessage `json:"payload"`
-	Priority       int             `json:"priority"` // New in commit 27dee4d: job priority support
-	RunAt          time.Time       `json:"run_at"`
-	AttemptCount   int             `json:"attempts"`
-	MaxAttempts    int             `json:"max_attempts"`
-	LastError      *string         `json:"last_error"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	Key            *string         `json:"key"`       // New in v0.4.0: job_key support
-	Revision       *int            `json:"revision"`  // New in commit 60da79a: job revision tracking
-	Flags          map[string]bool `json:"flags"`     // New in commit fb9b249: forbidden flags support
-	LockedAt       *time.Time      `json:"locked_at"` // New in v0.4.0: task locking
-	LockedBy       *string         `json:"locked_by"` // New in v0.4.0: task locking
+	ID             string                 `json:"id"`
+	QueueName      *string                `json:"queue_name"`
+	TaskIdentifier string                 `json:"task_identifier"`
+	Payload        json.RawMessage        `json:"payload"`
+	Priority       int                    `json:"priority"`
+	RunAt          time.Time              `json:"run_at"`
+	AttemptCount   int                    `json:"attempts"`
+	MaxAttempts    int                    `json:"max_attempts"`
+	LastError      *string                `json:"last_error"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Key            *string                `json:"key"`
+	Revision       int                    `json:"revision"`
+	LockedAt       *time.Time             `json:"locked_at"`
+	LockedBy       *string                `json:"locked_by"`
+	Flags          map[string]interface{} `json:"flags"`
 }
+
+// ForbiddenFlagsFunc is a function that returns forbidden flags
+type ForbiddenFlagsFunc func() ([]string, error)
+
+// WithPgClientFunc provides database connection handling
+type WithPgClientFunc func(func(*pgx.Conn) error) error
 
 // TaskSpec represents job scheduling options (renamed from TaskOptions in v0.4.0)
 type TaskSpec struct {
@@ -474,7 +480,9 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	job.CreatedAt = *createdAt
 	job.UpdatedAt = *updatedAt
 	job.Key = key
-	job.Revision = revision
+	if revision != nil {
+		job.Revision = *revision
+	}
 
 	// Parse flags JSON if present
 	if flags != nil {
@@ -482,7 +490,11 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		if err := json.Unmarshal(*flags, &flagsMap); err != nil {
 			return nil, fmt.Errorf("failed to parse flags: %w", err)
 		}
-		job.Flags = flagsMap
+		// Convert to map[string]interface{}
+		job.Flags = make(map[string]interface{})
+		for k, v := range flagsMap {
+			job.Flags[k] = v
+		}
 	} else {
 		job.Flags = nil
 	}
