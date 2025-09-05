@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Documentation
+
+- **Improved**: Clarified `MaxAttempts` field documentation in API reference (sync from graphile-worker commit 4064051)
+  - Changed terminology from "retries" to "attempts" for better accuracy
+  - Added clarification that minimum value is 1, meaning task will only be attempted once and won't be retried
+  - Maintains default value of 25 attempts
+
 ## [0.13.0] - 2025-09-05
 
 ### Changed

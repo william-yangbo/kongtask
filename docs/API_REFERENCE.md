@@ -223,7 +223,8 @@ type TaskSpec struct {
     // Job priority (lower = higher priority)
     Priority *int
 
-    // Maximum retry attempts
+    // Maximum attempts for this task. The minimum is 1, in which case the
+    // task will only be attempted once and won't be retried. (Default: 25)
     MaxAttempts *int
 
     // Unique job identifier
