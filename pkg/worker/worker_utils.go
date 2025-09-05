@@ -263,8 +263,13 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 	}
 
 	query := fmt.Sprintf(`
-		DELETE FROM %s._private_jobs
+		DELETE FROM %s.jobs
 		WHERE id = ANY($1::bigint[])
+		AND (
+			locked_by IS NULL
+			OR
+			locked_at < NOW() - INTERVAL '4 hours'
+		)
 		RETURNING
 			id::text,
 			queue_name,
@@ -293,7 +298,7 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 	var jobs []Job
 	for rows.Next() {
 		var job Job
-		var id int64
+		var id string
 		var queueName *string
 		var taskIdentifier string
 		var payload json.RawMessage
@@ -342,8 +347,8 @@ func (wu *WorkerUtils) CompleteJobs(ctx context.Context, jobIDs []string) ([]Job
 			job.Revision = *revision
 		}
 
-		// Convert int id to string for v0.4.0 compatibility
-		job.ID = fmt.Sprintf("%d", id)
+		// ID is already a string from the RETURNING clause
+		job.ID = id
 		job.QueueName = queueName
 		job.LastError = lastError
 		job.Key = key
