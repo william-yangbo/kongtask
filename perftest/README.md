@@ -48,21 +48,34 @@
    - 10 个并发度 (CONCURRENCY)
    - 查找目标作业 (id=999)
 
-6. **LatencyPerformance** - 延迟性能测试
+6. **StuckJobsPerformance** - 卡住作业性能测试 (commit 7abf0af 新增)
+
+   - 对应 graphile-worker commit 7abf0af 的增强功能
+   - 使用 InitJobs 函数模拟 init.js 行为
+   - 支持 "stuck" 任务类型，模拟被锁定的作业
+   - 测试任务标识符验证（安全检查）
+
+7. **TaskIdentifierValidation** - 任务标识符验证测试 (commit 7abf0af 新增)
+
+   - 验证任务标识符必须匹配 `^[a-zA-Z0-9_]+$` 模式
+   - 防止 SQL 注入等安全问题
+   - 确保与 graphile-worker init.js 的安全检查一致
+
+8. **LatencyPerformance** - 延迟性能测试
 
    - 测量 50 个作业的端到端延迟
    - 单个工作器精确测量
    - 提供平均延迟统计
 
-7. **StartupShutdownPerformance** - 启动/关闭性能测试
+9. **StartupShutdownPerformance** - 启动/关闭性能测试
 
    - 测量工作器启动时间
    - 测量工作器关闭时间
    - 多次迭代平均值
 
-8. **MemoryPerformance** - 内存性能测试
-   - 测试内存使用效率
-   - 处理大量作业时的内存稳定性
+10. **MemoryPerformance** - 内存性能测试
+    - 测试内存使用效率
+    - 处理大量作业时的内存稳定性
 
 ## 🔧 技术实现
 

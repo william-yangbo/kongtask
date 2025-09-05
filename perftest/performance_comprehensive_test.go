@@ -880,3 +880,148 @@ func TestMemoryPerformance(t *testing.T) {
 	err = workerPool.Release()
 	require.NoError(t, err)
 }
+
+// TestStuckJobsPerformance tests performance with stuck jobs (matching commit 7abf0af)
+func TestStuckJobsPerformance(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize database schema
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	t.Log("⚡ Testing stuck jobs performance (matching graphile-worker commit 7abf0af)...")
+
+	const STUCK_JOB_COUNT = 500 // Reduced from 50000 for test efficiency
+	const NORMAL_JOB_COUNT = 100
+
+	var processedStuck, processedNormal int64
+
+	// Task handlers
+	tasks := map[string]worker.TaskHandler{
+		"stuck": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			atomic.AddInt64(&processedStuck, 1)
+			return nil
+		},
+		"log_if_999": func(ctx context.Context, payload json.RawMessage, helpers *worker.Helpers) error {
+			var payloadData struct {
+				ID int `json:"id"`
+			}
+			if err := json.Unmarshal(payload, &payloadData); err == nil {
+				if payloadData.ID == 999 {
+					t.Logf("🎯 Found target job with id=999!")
+				}
+			}
+			atomic.AddInt64(&processedNormal, 1)
+			return nil
+		},
+	}
+
+	// First, add stuck jobs using InitJobs function (matching init.js behavior)
+	t.Logf("📊 Adding %d stuck jobs using InitJobs function...", STUCK_JOB_COUNT)
+	err = InitJobs(ctx, pool, STUCK_JOB_COUNT, "stuck")
+	require.NoError(t, err)
+
+	// Then add normal jobs
+	t.Logf("📊 Adding %d normal jobs...", NORMAL_JOB_COUNT)
+	err = InitJobs(ctx, pool, NORMAL_JOB_COUNT, "log_if_999")
+	require.NoError(t, err)
+
+	// Start worker pool
+	options := worker.WorkerPoolOptions{
+		Concurrency:  4, // PARALLELISM from run.js
+		Schema:       "graphile_worker",
+		PollInterval: 10 * time.Millisecond,
+	}
+
+	workerPool, err := worker.RunTaskList(ctx, options, tasks, pool)
+	require.NoError(t, err)
+
+	// Wait for processing completion
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	start := time.Now()
+
+ProcessingLoop:
+	for {
+		select {
+		case <-timeout:
+			t.Log("⚠️  Timeout reached during stuck jobs test")
+			break ProcessingLoop
+		case <-ticker.C:
+			remaining := testutil.JobCount(t, pool, "graphile_worker")
+			currentStuck := atomic.LoadInt64(&processedStuck)
+			currentNormal := atomic.LoadInt64(&processedNormal)
+
+			t.Logf("📊 Progress: %d stuck, %d normal processed, %d remaining",
+				currentStuck, currentNormal, remaining)
+
+			if remaining == 0 {
+				break ProcessingLoop
+			}
+		}
+	}
+
+	elapsed := time.Since(start)
+	finalStuck := atomic.LoadInt64(&processedStuck)
+	finalNormal := atomic.LoadInt64(&processedNormal)
+
+	t.Logf("✅ Stuck jobs test completed in %v:", elapsed)
+	t.Logf("   Stuck jobs processed: %d/%d", finalStuck, STUCK_JOB_COUNT)
+	t.Logf("   Normal jobs processed: %d/%d", finalNormal, NORMAL_JOB_COUNT)
+
+	// Verify reasonable processing occurred
+	require.Greater(t, finalStuck+finalNormal, int64(50), "Should process at least some jobs")
+
+	err = workerPool.Release()
+	require.NoError(t, err)
+}
+
+// TestTaskIdentifierValidation tests task identifier validation (matching commit 7abf0af)
+func TestTaskIdentifierValidation(t *testing.T) {
+	_, pool := testutil.StartPostgres(t)
+	ctx := context.Background()
+
+	// Initialize database schema
+	migrator := migrate.NewMigrator(pool, "graphile_worker")
+	err := migrator.Migrate(ctx)
+	require.NoError(t, err)
+
+	t.Log("⚡ Testing task identifier validation (matching commit 7abf0af security check)...")
+
+	// Test cases for task identifier validation
+	testCases := []struct {
+		name           string
+		taskIdentifier string
+		expectError    bool
+	}{
+		{"Valid alphanumeric", "valid_task_123", false},
+		{"Valid underscore", "log_if_999", false},
+		{"Valid simple", "stuck", false},
+		{"Invalid dash", "invalid-task", true},
+		{"Invalid space", "invalid task", true},
+		{"Invalid special char", "invalid@task", true},
+		{"Invalid dot", "invalid.task", true},
+		{"Empty string", "", true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := InitJobs(ctx, pool, 1, tc.taskIdentifier)
+
+			if tc.expectError {
+				require.Error(t, err, "Expected error for task identifier: %s", tc.taskIdentifier)
+				require.Contains(t, err.Error(), "disallowed task identifier",
+					"Error should mention disallowed task identifier")
+			} else {
+				require.NoError(t, err, "Expected no error for task identifier: %s", tc.taskIdentifier)
+			}
+		})
+	}
+
+	t.Log("✅ Task identifier validation test completed")
+}
