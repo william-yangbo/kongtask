@@ -82,7 +82,7 @@ jobs:
           cache: true
 
       - name: Run comprehensive linting
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=10m # Full timeout for comprehensive scan
