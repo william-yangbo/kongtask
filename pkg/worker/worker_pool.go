@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -260,17 +259,6 @@ func (wp *WorkerPool) handleNotifications() {
 	}
 }
 
-// reconnectNotificationListener attempts to reconnect the notification listener
-// Enhanced with exponential backoff (commit 50e237e alignment)
-func (wp *WorkerPool) reconnectNotificationListener() {
-	if wp.notifyCtx.Err() != nil {
-		return // Don't reconnect if context is cancelled
-	}
-
-	// Use exponential backoff for reconnection attempts
-	wp.reconnectWithExponentialBackoff(fmt.Errorf("notification listener disconnected"))
-}
-
 // reconnectWithExponentialBackoff implements exponential backoff for LISTEN connection retries
 // Aligned with graphile-worker commit 50e237e
 func (wp *WorkerPool) reconnectWithExponentialBackoff(err error) {
@@ -286,7 +274,7 @@ func (wp *WorkerPool) reconnectWithExponentialBackoff(err error) {
 	// want to avoid the thundering herd problem. For now, we'll add some
 	// randomness to it via the `jitter` variable, this variable is
 	// deliberately weighted towards the higher end of the duration.
-	jitter := 0.5 + math.Sqrt(rand.Float64())/2
+	jitter := wp.generateSecureJitter()
 
 	// Backoff (ms): 136, 370, 1005, 2730, 7421, 20172, 54832
 	delayFloat := jitter * math.Min(float64(maxListenDelay/time.Millisecond), 50*math.Exp(float64(wp.listenAttempts)))
@@ -487,6 +475,32 @@ func (wp *WorkerPool) GetActiveJobs() []*Job {
 		}
 	}
 	return activeJobs
+}
+
+// generateSecureJitter creates secure random jitter for exponential backoff
+// Uses crypto/rand instead of math/rand for security compliance
+func (wp *WorkerPool) generateSecureJitter() float64 {
+	// Generate 8 random bytes
+	bytes := make([]byte, 8)
+	_, err := cryptoRand.Read(bytes)
+	if err != nil {
+		// Fallback to deterministic jitter if crypto/rand fails
+		wp.logger.Warn("Failed to generate secure random jitter, using fallback")
+		return 0.75 // Fixed jitter value as fallback
+	}
+
+	// Convert bytes to float64 in range [0,1)
+	// Take first 8 bytes and treat as uint64
+	var randUint64 uint64
+	for i := 0; i < 8; i++ {
+		randUint64 = (randUint64 << 8) | uint64(bytes[i])
+	}
+
+	// Convert to float64 in range [0,1)
+	randFloat := float64(randUint64) / float64(^uint64(0))
+
+	// Apply the same formula as before: 0.5 + sqrt(rand)/2
+	return 0.5 + math.Sqrt(randFloat)/2
 }
 
 // getTaskNames extracts task names from task map
