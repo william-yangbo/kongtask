@@ -14,6 +14,24 @@ func NewMatcher() Matcher {
 
 // Matches checks if a cron item should fire at the given time
 func (m *DefaultMatcher) Matches(item ParsedCronItem, t time.Time) bool {
+	// Ensure the item was parsed correctly
+	if !item.IsParsed() {
+		// Fallback: should not happen with properly constructed ParsedCronItem
+		return false
+	}
+
+	// Use the optimized match function if available
+	if item.Match != nil {
+		digest := m.DigestTimestamp(t)
+		return item.Match(digest)
+	}
+
+	// Fallback to legacy array-based matching for backward compatibility
+	return m.matchesLegacy(item, t)
+}
+
+// matchesLegacy provides backward compatibility with array-based matching
+func (m *DefaultMatcher) matchesLegacy(item ParsedCronItem, t time.Time) bool {
 	digest := m.DigestTimestamp(t)
 
 	// Check minute, hour, and month - these must all match

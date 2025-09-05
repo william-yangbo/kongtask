@@ -1,6 +1,6 @@
 // Package cron provides cron scheduling functionality for kongtask
 // This package implements distributed cron scheduling with backfill support,
-// synchronized from graphile-worker commit cb369ad
+// synchronized from graphile-worker commit c1b384b
 package cron
 
 import (
@@ -9,13 +9,30 @@ import (
 	"time"
 )
 
+// CronMatcher is a function that determines if a particular cron item should be
+// executed for a given timestamp digest.
+type CronMatcher func(digest TimestampDigest) bool
+
+// isParsedSymbol is used to guarantee that ParsedCronItem was parsed correctly
+type isParsedSymbol struct{}
+
+var IsParsed = isParsedSymbol{}
+
 // CronItem represents a single cron schedule entry (user-facing configuration)
 type CronItem struct {
 	// Task identifier to execute
 	Task string `json:"task"`
 
+	// Cron pattern (e.g., "0 4 * * *" for daily at 4 AM UTC) or custom matcher function
+	// This can be either:
+	// - string: Traditional cron pattern
+	// - CronMatcher: Custom matching function
+	Match interface{} `json:"match"`
+
+	// @deprecated Please use Match instead of Pattern
 	// Cron pattern (e.g., "0 4 * * *" for daily at 4 AM UTC)
-	Pattern string `json:"pattern"`
+	// This field is kept for backward compatibility
+	Pattern string `json:"pattern,omitempty"`
 
 	// Optional unique identifier (defaults to task name)
 	Identifier string `json:"identifier,omitempty"`
@@ -66,12 +83,19 @@ type CronItemOptions struct {
 // ParsedCronItem represents a parsed and validated cron item (internal representation)
 // This type has strict requirements and should only be constructed via parsing functions
 type ParsedCronItem struct {
-	// Time components (all arrays must be sorted and contain unique values)
-	Minutes []int `json:"minutes"` // 0-59
-	Hours   []int `json:"hours"`   // 0-23
-	Dates   []int `json:"dates"`   // 1-31
-	Months  []int `json:"months"`  // 1-12
-	DOWs    []int `json:"dows"`    // 0-6 (Sunday=0)
+	// Internal marker to ensure proper parsing
+	_isParsed isParsedSymbol
+
+	// Optimized function to determine if this item matches the given TimestampDigest
+	Match CronMatcher `json:"-"`
+
+	// Legacy time component arrays (deprecated but kept for compatibility)
+	// These are only populated when created from traditional cron patterns
+	Minutes []int `json:"minutes,omitempty"` // 0-59 (deprecated)
+	Hours   []int `json:"hours,omitempty"`   // 0-23 (deprecated)
+	Dates   []int `json:"dates,omitempty"`   // 1-31 (deprecated)
+	Months  []int `json:"months,omitempty"`  // 1-12 (deprecated)
+	DOWs    []int `json:"dows,omitempty"`    // 0-6 Sunday=0 (deprecated)
 
 	// Task configuration
 	Task       string                 `json:"task"`
@@ -81,6 +105,11 @@ type ParsedCronItem struct {
 
 	// Job configuration generated from the cron item
 	Job CronJob `json:"job"`
+}
+
+// IsParsed returns true if this ParsedCronItem was created through proper parsing
+func (pci ParsedCronItem) IsParsed() bool {
+	return pci._isParsed == IsParsed
 }
 
 // TimestampDigest contains the time components needed for cron matching

@@ -202,8 +202,13 @@ func (p *DefaultParser) parseCrontabLine(line string, lineNum int) (ParsedCronIt
 		job.JobKey = &options.JobKey
 	}
 
+	// Create matcher function from parsed arrays
+	matcher := p.createArrayMatcher(minutes, hours, dates, months, dows)
+
 	return ParsedCronItem{
-		Minutes:    minutes,
+		_isParsed:  IsParsed, // Mark as properly parsed
+		Match:      matcher,
+		Minutes:    minutes, // Keep for backward compatibility
 		Hours:      hours,
 		Dates:      dates,
 		Months:     months,
@@ -218,35 +223,68 @@ func (p *DefaultParser) parseCrontabLine(line string, lineNum int) (ParsedCronIt
 
 // parseCronItem converts a CronItem to ParsedCronItem
 func (p *DefaultParser) parseCronItem(item CronItem, index int) (ParsedCronItem, error) {
-	if err := p.ValidatePattern(item.Pattern); err != nil {
-		return ParsedCronItem{}, err
+	// Validate that either Match or Pattern is provided
+	if item.Match == nil && item.Pattern == "" {
+		return ParsedCronItem{}, fmt.Errorf("either Match or Pattern must be provided")
 	}
 
-	parts := strings.Fields(item.Pattern)
-
-	minutes, err := p.parseCrontabRange("minute", parts[0], 0, 59, false)
-	if err != nil {
-		return ParsedCronItem{}, err
+	// Handle backward compatibility: if Pattern is provided but Match is not
+	if item.Match == nil && item.Pattern != "" {
+		item.Match = item.Pattern
 	}
 
-	hours, err := p.parseCrontabRange("hour", parts[1], 0, 23, false)
-	if err != nil {
-		return ParsedCronItem{}, err
-	}
+	var matcher CronMatcher
+	var minutes, hours, dates, months, dows []int
 
-	dates, err := p.parseCrontabRange("date", parts[2], 1, 31, false)
-	if err != nil {
-		return ParsedCronItem{}, err
-	}
+	switch m := item.Match.(type) {
+	case string:
+		// Traditional cron pattern string
+		if err := p.ValidatePattern(m); err != nil {
+			return ParsedCronItem{}, err
+		}
 
-	months, err := p.parseCrontabRange("month", parts[3], 1, 12, false)
-	if err != nil {
-		return ParsedCronItem{}, err
-	}
+		// Parse the pattern and create time arrays (for backward compatibility)
+		parts := strings.Fields(m)
+		var err error
 
-	dows, err := p.parseCrontabRange("dow", parts[4], 0, 6, true)
-	if err != nil {
-		return ParsedCronItem{}, err
+		minutes, err = p.parseCrontabRange("minute", parts[0], 0, 59, false)
+		if err != nil {
+			return ParsedCronItem{}, err
+		}
+
+		hours, err = p.parseCrontabRange("hour", parts[1], 0, 23, false)
+		if err != nil {
+			return ParsedCronItem{}, err
+		}
+
+		dates, err = p.parseCrontabRange("date", parts[2], 1, 31, false)
+		if err != nil {
+			return ParsedCronItem{}, err
+		}
+
+		months, err = p.parseCrontabRange("month", parts[3], 1, 12, false)
+		if err != nil {
+			return ParsedCronItem{}, err
+		}
+
+		dows, err = p.parseCrontabRange("dow", parts[4], 0, 6, true)
+		if err != nil {
+			return ParsedCronItem{}, err
+		}
+
+		// Create matcher function from parsed arrays
+		matcher = p.createArrayMatcher(minutes, hours, dates, months, dows)
+
+	case CronMatcher:
+		// Custom matcher function
+		matcher = m
+
+	case func(TimestampDigest) bool:
+		// Function with correct signature but not explicitly typed as CronMatcher
+		matcher = CronMatcher(m)
+
+	default:
+		return ParsedCronItem{}, fmt.Errorf("Match must be either a string (cron pattern) or CronMatcher function")
 	}
 
 	identifier := item.Identifier
@@ -274,7 +312,9 @@ func (p *DefaultParser) parseCronItem(item CronItem, index int) (ParsedCronItem,
 	}
 
 	return ParsedCronItem{
-		Minutes:    minutes,
+		_isParsed:  IsParsed, // Mark as properly parsed
+		Match:      matcher,
+		Minutes:    minutes, // Keep for backward compatibility
 		Hours:      hours,
 		Dates:      dates,
 		Months:     months,
@@ -285,6 +325,55 @@ func (p *DefaultParser) parseCronItem(item CronItem, index int) (ParsedCronItem,
 		Payload:    payload,
 		Job:        job,
 	}, nil
+}
+
+// createArrayMatcher creates a CronMatcher function from time component arrays
+func (p *DefaultParser) createArrayMatcher(minutes, hours, dates, months, dows []int) CronMatcher {
+	return func(digest TimestampDigest) bool {
+		// Check if current minute matches
+		if !contains(minutes, digest.Minute) {
+			return false
+		}
+
+		// Check if current hour matches
+		if !contains(hours, digest.Hour) {
+			return false
+		}
+
+		// Check if current month matches
+		if !contains(months, digest.Month) {
+			return false
+		}
+
+		// Cron has special behavior for date and day-of-week:
+		// If both are exclusionary (not "*"), then matching either one passes
+		dateIsExclusionary := len(dates) != 31 // Not all days 1-31
+		dowIsExclusionary := len(dows) != 7    // Not all days 0-6
+
+		if dateIsExclusionary && dowIsExclusionary {
+			// Both date and DOW are specified, so match either one
+			return contains(dates, digest.Date) || contains(dows, digest.DOW)
+		} else if dateIsExclusionary {
+			// Only date is specified
+			return contains(dates, digest.Date)
+		} else if dowIsExclusionary {
+			// Only DOW is specified
+			return contains(dows, digest.DOW)
+		} else {
+			// Both are "*", so always match
+			return true
+		}
+	}
+}
+
+// contains checks if a slice contains a specific integer
+func contains(slice []int, value int) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 // parseCrontabRange parses a cron time field (e.g., "*/5", "1-3", "1,2,3")

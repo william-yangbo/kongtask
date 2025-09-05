@@ -18,8 +18,8 @@ func TestCronPatternMatching(t *testing.T) {
 		"0_0_1_1_4":  time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC),  // Thursday
 		"0_15_1_7_0": time.Date(2024, 7, 7, 15, 0, 0, 0, time.UTC), // Sunday, July 7th at 15:00
 		"0_15_4_7_2": time.Date(2024, 7, 2, 15, 0, 0, 0, time.UTC), // Tuesday, July 2nd at 15:00
-		"0_15_4_7_5": time.Date(2024, 7, 5, 15, 0, 0, 0, time.UTC), // Friday, July 5th at 15:00
-		"6_15_4_7_5": time.Date(2024, 7, 5, 15, 6, 0, 0, time.UTC), // Friday, July 5th at 15:06
+		"0_15_4_7_5": time.Date(2025, 7, 4, 15, 0, 0, 0, time.UTC), // Friday, July 4th at 15:00 (2025)
+		"6_15_4_7_5": time.Date(2025, 7, 4, 15, 6, 0, 0, time.UTC), // Friday, July 4th at 15:06 (2025)
 	}
 
 	testCases := []struct {
@@ -62,7 +62,7 @@ func TestCronPatternMatching(t *testing.T) {
 				"0_0_1_1_4":  false, // Wrong hour, month
 				"0_15_1_7_0": true,  // July 7th is Sunday (DOW=0), matches dow range 0-2 via OR logic
 				"0_15_4_7_2": true,  // July 2nd is Tuesday (DOW=2), matches dow range 0-2 via OR logic
-				"0_15_4_7_5": false, // July 5th is Friday (DOW=5), not in range 0-2, and date 5 not in 3-4
+				"0_15_4_7_5": true,  // July 4th matches date range 3-4 (DOW doesn't matter since date matches)
 				"6_15_4_7_5": false, // Minute 6 is not in range 0-5
 			},
 		},
