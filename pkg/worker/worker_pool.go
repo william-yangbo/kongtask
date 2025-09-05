@@ -75,6 +75,11 @@ type WorkerPool struct {
 	// Channels for coordination
 	nudgeChannel     chan struct{}
 	shutdownComplete chan struct{}
+
+	// Error handling and recovery (sync from graphile-worker commit 79f2160)
+	errorChan      chan error     // Channel for critical errors that should trigger shutdown
+	criticalError  error          // Stores the first critical error that caused shutdown
+	errorHandlerWG sync.WaitGroup // Separate WaitGroup for error handler goroutine
 }
 
 // RunTaskList creates and starts a worker pool (equivalent to graphile-worker runTaskList)
@@ -113,6 +118,7 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 		cancel:           poolCancel,
 		nudgeChannel:     make(chan struct{}, options.Concurrency*2),
 		shutdownComplete: make(chan struct{}),
+		errorChan:        make(chan error, 10), // Buffered channel for critical errors
 	}
 
 	// Emit pool:create event (main.ts alignment)
@@ -143,6 +149,10 @@ func RunTaskList(ctx context.Context, options WorkerPoolOptions, tasks map[strin
 	if err := wp.startNotificationListener(); err != nil {
 		return nil, fmt.Errorf("failed to start notification listener: %w", err)
 	}
+
+	// Start critical error monitor (sync from graphile-worker commit 79f2160)
+	wp.errorHandlerWG.Add(1)
+	go wp.startErrorMonitor()
 
 	// Start workers
 	for i, worker := range wp.workers {
@@ -202,10 +212,61 @@ func (wp *WorkerPool) startNotificationListener() error {
 	return nil
 }
 
+// startErrorMonitor starts the critical error monitoring goroutine
+// This implements the error aggregation pattern from graphile-worker commit 79f2160
+func (wp *WorkerPool) startErrorMonitor() {
+	defer wp.errorHandlerWG.Done()
+
+	wp.logger.Debug("Error monitor started")
+
+	for {
+		select {
+		case <-wp.ctx.Done():
+			wp.logger.Debug("Error monitor stopping due to context cancellation")
+			return
+		case err := <-wp.errorChan:
+			if wp.criticalError == nil {
+				wp.criticalError = err
+			}
+
+			wp.logger.Error(fmt.Sprintf("Critical error detected, initiating graceful shutdown: %v", err))
+
+			// Emit error event before shutdown (main.ts alignment)
+			wp.eventBus.Emit(events.PoolError, map[string]interface{}{
+				"workerPool": wp,
+				"error":      err,
+			})
+
+			// Trigger graceful shutdown due to critical error
+			// This mirrors the error handling from graphile-worker commit 79f2160
+			go func() {
+				if shutdownErr := wp.GracefulShutdown(fmt.Sprintf("Critical error: %v", err)); shutdownErr != nil {
+					wp.logger.Error(fmt.Sprintf("Error during critical error shutdown: %v", shutdownErr))
+				}
+			}()
+			return
+		}
+	}
+}
+
 // handleNotifications processes database notifications
 // Enhanced error handling aligned with graphile-worker commit e714bd0
 func (wp *WorkerPool) handleNotifications() {
 	defer wp.wg.Done()
+
+	// Panic recovery for notification handler
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr := fmt.Errorf("notification handler panic: %v", r)
+			wp.logger.Error(fmt.Sprintf("Notification handler panic recovered: %v", panicErr))
+
+			select {
+			case wp.errorChan <- panicErr:
+			default:
+				wp.logger.Error("Error channel full, could not report notification handler panic")
+			}
+		}
+	}()
 
 	var errorHandled bool
 
@@ -308,9 +369,23 @@ func (wp *WorkerPool) reconnectWithExponentialBackoff(err error) {
 	}()
 }
 
-// runNudgeCoordinator coordinates worker nudging
+// runNudgeCoordinator coordinates worker nudging with panic recovery
 func (wp *WorkerPool) runNudgeCoordinator() {
 	defer wp.wg.Done()
+
+	// Panic recovery for nudge coordinator
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr := fmt.Errorf("nudge coordinator panic: %v", r)
+			wp.logger.Error(fmt.Sprintf("Nudge coordinator panic recovered: %v", panicErr))
+
+			select {
+			case wp.errorChan <- panicErr:
+			default:
+				wp.logger.Error("Error channel full, could not report nudge coordinator panic")
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -334,9 +409,29 @@ func (wp *WorkerPool) nudgeIdleWorker() {
 	wp.logger.Debug("No idle workers to nudge")
 }
 
-// runWorker runs a single worker in the pool
+// runWorker runs a single worker in the pool with panic recovery
+// Enhanced with panic recovery aligned with graphile-worker commit 79f2160
 func (wp *WorkerPool) runWorker(workerIndex int, worker *Worker) {
 	defer wp.wg.Done()
+
+	// Panic recovery mechanism to prevent worker crashes from bringing down the pool
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic to error and send to error channel
+			panicErr := fmt.Errorf("worker panic (worker %d): %v", workerIndex, r)
+
+			// Log the panic with stack trace for debugging
+			wp.logger.Error(fmt.Sprintf("Worker panic recovered: %v", panicErr))
+
+			// Send to error channel for centralized handling
+			select {
+			case wp.errorChan <- panicErr:
+			default:
+				// Error channel is full, log this as well
+				wp.logger.Error("Error channel full, could not report worker panic")
+			}
+		}
+	}()
 
 	workerLogger := wp.logger.Scope(logger.LogScope{
 		WorkerID: worker.workerID,
@@ -348,6 +443,16 @@ func (wp *WorkerPool) runWorker(workerIndex int, worker *Worker) {
 	err := wp.runWorkerWithNudging(worker)
 	if err != nil && err != context.Canceled {
 		workerLogger.Error(fmt.Sprintf("Worker stopped with error: %v", err))
+
+		// Check if this is a critical error that should trigger shutdown
+		if wp.isCriticalError(err) {
+			select {
+			case wp.errorChan <- fmt.Errorf("critical worker error (worker %d): %w", workerIndex, err):
+			default:
+				// Error channel full
+				wp.logger.Error("Error channel full, could not report critical worker error")
+			}
+		}
 	} else {
 		workerLogger.Info("Worker stopped gracefully")
 	}
@@ -397,6 +502,31 @@ func (wp *WorkerPool) processAvailableJobs(worker *Worker) error {
 	}
 }
 
+// isCriticalError determines if an error should trigger pool shutdown
+// This implements error classification from graphile-worker commit 79f2160
+func (wp *WorkerPool) isCriticalError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Database connection errors are critical
+	if err.Error() != "" &&
+		(fmt.Sprintf("%v", err) == "connection refused" ||
+			fmt.Sprintf("%v", err) == "connection closed" ||
+			fmt.Sprintf("%v", err) == "server closed the connection unexpectedly") {
+		return true
+	}
+
+	// Context cancellation is not critical (it's expected during shutdown)
+	if err == context.Canceled || err == context.DeadlineExceeded {
+		return false
+	}
+
+	// For now, be conservative and don't treat other errors as critical
+	// This can be expanded based on operational experience
+	return false
+}
+
 // Release gracefully shuts down the worker pool
 func (wp *WorkerPool) Release() error {
 	// Emit pool:release event (main.ts alignment)
@@ -434,6 +564,13 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 			close(done)
 		}()
 
+		// Wait for error handler to finish with timeout
+		errorHandlerDone := make(chan struct{})
+		go func() {
+			wp.errorHandlerWG.Wait()
+			close(errorHandlerDone)
+		}()
+
 		select {
 		case <-done:
 			wp.logger.Info("All workers stopped gracefully")
@@ -445,6 +582,14 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 				"pool":  wp,
 				"error": shutdownErr,
 			})
+		}
+
+		// Wait for error handler to finish (with a shorter timeout)
+		select {
+		case <-errorHandlerDone:
+			wp.logger.Debug("Error handler stopped gracefully")
+		case <-time.After(5 * time.Second):
+			wp.logger.Warn("Error handler stop timeout")
 		}
 
 		close(wp.shutdownComplete)
@@ -461,8 +606,16 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 	return shutdownErr
 }
 
-// Wait waits for the worker pool to complete
-func (wp *WorkerPool) Wait() {
+// Wait waits for the worker pool to complete and returns any critical error
+// Enhanced to return critical errors aligned with graphile-worker commit 79f2160
+func (wp *WorkerPool) Wait() error {
+	<-wp.shutdownComplete
+	return wp.criticalError
+}
+
+// WaitWithoutError waits for the worker pool to complete without returning error
+// This maintains backward compatibility with existing code
+func (wp *WorkerPool) WaitWithoutError() {
 	<-wp.shutdownComplete
 }
 

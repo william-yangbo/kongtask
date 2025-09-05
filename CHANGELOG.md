@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Enhanced Error Handling**: Implemented unified error handling and panic recovery mechanism (sync from graphile-worker commit 79f2160)
+  - Added panic recovery for all worker pool goroutines (workers, nudge coordinator, notification handler)
+  - Implemented critical error monitoring system with centralized error aggregation
+  - Enhanced `Wait()` method to return critical errors that caused shutdown
+  - Added `WaitWithoutError()` method for backward compatibility
+  - Added `PoolError` event type for general pool error notifications
+  - Improved error classification to distinguish between critical and non-critical errors
+  - Added comprehensive test coverage for error handling scenarios
+
 ### Documentation
 
 - **Improved**: Clarified `MaxAttempts` field documentation in API reference (sync from graphile-worker commit 4064051)

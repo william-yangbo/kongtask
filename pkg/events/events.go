@@ -19,6 +19,7 @@ const (
 	PoolListenConnecting EventType = "pool:listen:connecting"
 	PoolListenSuccess    EventType = "pool:listen:success"
 	PoolListenError      EventType = "pool:listen:error"
+	PoolError            EventType = "pool:error" // General pool error event (commit 79f2160 alignment)
 	PoolRelease          EventType = "pool:release"
 	PoolGracefulShutdown EventType = "pool:gracefulShutdown"
 	PoolShutdownError    EventType = "pool:gracefulShutdown:error"
