@@ -77,9 +77,10 @@ type WorkerPool struct {
 	shutdownComplete chan struct{}
 
 	// Error handling and recovery (sync from graphile-worker commit 79f2160)
-	errorChan      chan error     // Channel for critical errors that should trigger shutdown
-	criticalError  error          // Stores the first critical error that caused shutdown
-	errorHandlerWG sync.WaitGroup // Separate WaitGroup for error handler goroutine
+	errorChan       chan error     // Channel for critical errors that should trigger shutdown
+	criticalError   error          // Stores the first critical error that caused shutdown
+	criticalErrorMu sync.RWMutex   // Protects criticalError field from data races
+	errorHandlerWG  sync.WaitGroup // Separate WaitGroup for error handler goroutine
 }
 
 // RunTaskList creates and starts a worker pool (equivalent to graphile-worker runTaskList)
@@ -225,9 +226,11 @@ func (wp *WorkerPool) startErrorMonitor() {
 			wp.logger.Debug("Error monitor stopping due to context cancellation")
 			return
 		case err := <-wp.errorChan:
+			wp.criticalErrorMu.Lock()
 			if wp.criticalError == nil {
 				wp.criticalError = err
 			}
+			wp.criticalErrorMu.Unlock()
 
 			wp.logger.Error(fmt.Sprintf("Critical error detected, initiating graceful shutdown: %v", err))
 
@@ -610,7 +613,10 @@ func (wp *WorkerPool) GracefulShutdown(message string) error {
 // Enhanced to return critical errors aligned with graphile-worker commit 79f2160
 func (wp *WorkerPool) Wait() error {
 	<-wp.shutdownComplete
-	return wp.criticalError
+	wp.criticalErrorMu.RLock()
+	err := wp.criticalError
+	wp.criticalErrorMu.RUnlock()
+	return err
 }
 
 // WaitWithoutError waits for the worker pool to complete without returning error

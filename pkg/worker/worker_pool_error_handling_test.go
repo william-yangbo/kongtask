@@ -17,7 +17,11 @@ func TestWorkerPanicRecovery(t *testing.T) {
 	defer cancel()
 
 	eventBus := events.NewEventBus(ctx, 10)
-	defer eventBus.Close()
+	defer func() {
+		if err := eventBus.Close(); err != nil {
+			t.Logf("Failed to close event bus: %v", err)
+		}
+	}()
 
 	wp := &WorkerPool{
 		ctx:              ctx,
@@ -45,11 +49,15 @@ func TestWorkerPanicRecovery(t *testing.T) {
 	// Wait a bit for error processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Check that critical error was recorded
-	if wp.criticalError == nil {
+	// Check that critical error was recorded by attempting to get it safely
+	wp.criticalErrorMu.RLock()
+	criticalErr := wp.criticalError
+	wp.criticalErrorMu.RUnlock()
+
+	if criticalErr == nil {
 		t.Error("Expected critical error to be set")
-	} else if wp.criticalError.Error() != panicErr.Error() {
-		t.Errorf("Expected critical error %v, got %v", panicErr, wp.criticalError)
+	} else if criticalErr.Error() != panicErr.Error() {
+		t.Errorf("Expected critical error %v, got %v", panicErr, criticalErr)
 	}
 
 	// Cleanup
@@ -118,7 +126,11 @@ func TestErrorMonitorShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	eventBus := events.NewEventBus(ctx, 10)
-	defer eventBus.Close()
+	defer func() {
+		if err := eventBus.Close(); err != nil {
+			t.Logf("Failed to close event bus: %v", err)
+		}
+	}()
 
 	wp := &WorkerPool{
 		ctx:              ctx,

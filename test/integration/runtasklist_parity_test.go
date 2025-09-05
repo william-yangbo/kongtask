@@ -160,7 +160,7 @@ func TestRunTaskListJobExecutionAndCleanExit(t *testing.T) {
 	var finished bool
 	var finishedMu sync.Mutex
 	go func() {
-		workerPool.Wait()
+		_ = workerPool.Wait()
 		finishedMu.Lock()
 		finished = true
 		finishedMu.Unlock()
@@ -352,7 +352,7 @@ func TestRunTaskListWithSignalHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for shutdown to complete
-	managedPool.Wait()
+	_ = managedPool.Wait()
 
 	// Verify job queue is empty
 	finalJobCount := testutil.JobCount(t, pool, "graphile_worker")

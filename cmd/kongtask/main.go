@@ -685,7 +685,9 @@ func runTaskListPool() error {
 	}
 
 	// Wait for worker pool to complete (will run until signal received)
-	workerPool.Wait()
+	if err := workerPool.Wait(); err != nil {
+		log.Printf("Worker pool wait failed: %v", err)
+	}
 
 	log.Println("Worker pool stopped gracefully")
 	return nil

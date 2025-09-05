@@ -284,7 +284,7 @@ func (p *DefaultParser) parseCronItem(item CronItem, index int) (ParsedCronItem,
 		matcher = CronMatcher(m)
 
 	default:
-		return ParsedCronItem{}, fmt.Errorf("Match must be either a string (cron pattern) or CronMatcher function")
+		return ParsedCronItem{}, fmt.Errorf("match must be either a string (cron pattern) or CronMatcher function")
 	}
 
 	identifier := item.Identifier

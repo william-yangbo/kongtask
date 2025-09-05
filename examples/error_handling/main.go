@@ -31,7 +31,11 @@ func main() {
 
 	// Set up event listener to monitor errors
 	eventBus := events.NewEventBus(ctx, 100)
-	defer eventBus.Close()
+	defer func() {
+		if err := eventBus.Close(); err != nil {
+			fmt.Printf("Failed to close event bus: %v\n", err)
+		}
+	}()
 
 	// Subscribe to pool error events
 	eventBus.Subscribe(events.PoolError, func(eventCtx context.Context, event events.Event) {
@@ -78,7 +82,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer workerPool.Release()
+	defer func() {
+		if err := workerPool.Release(); err != nil {
+			fmt.Printf("Failed to release worker pool: %v\n", err)
+		}
+	}()
 
 	// Add some test jobs
 	w := worker.NewWorker(pool, "graphile_worker")
