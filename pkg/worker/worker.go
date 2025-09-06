@@ -339,7 +339,7 @@ func (w *Worker) AddJob(ctx context.Context, taskIdentifier string, payload inte
 	return nil
 }
 
-// GetJob gets a job from the queue (corresponds to graphile-worker get_job)
+// GetJob gets a job from the queue using inline SQL (moved from database function)
 func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	// Emit worker:getJob:start event (commit 92f4b3d alignment)
 	if w.eventBus != nil {
@@ -366,19 +366,65 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		forbiddenFlags = flags
 	}
 
-	// Prepare query with optional 'now' parameter for useNodeTime feature (commit 5a09a37)
-	var query string
+	// Determine time source - use Node time or PostgreSQL time
+	var nowExpr string
 	var args []interface{}
 
 	if w.useNodeTime {
-		// Use Node's time source - pass current time as 'now' parameter
-		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2, $3)", w.schema)
+		nowExpr = "$3::timestamptz"
 		args = []interface{}{w.workerID, forbiddenFlags, w.timeProvider.Now()}
 	} else {
-		// Use PostgreSQL's time source (default behavior)
-		query = fmt.Sprintf("SELECT id, queue_name, task_identifier, payload, priority, run_at, attempts, max_attempts, last_error, created_at, updated_at, key, revision, flags, locked_at, locked_by FROM %s.get_job($1, null, '4 hours'::interval, $2)", w.schema)
+		nowExpr = "now()"
 		args = []interface{}{w.workerID, forbiddenFlags}
 	}
+
+	// Build the complex inline SQL matching graphile-worker's implementation
+	query := fmt.Sprintf(`with j as (
+  select jobs.queue_name, jobs.id
+    from %s.jobs
+    where (jobs.locked_at is null or jobs.locked_at < (%s - interval '4 hours'))
+    and (
+      jobs.queue_name is null
+    or
+      exists (
+        select 1
+        from %s.job_queues
+        where job_queues.queue_name = jobs.queue_name
+        and (job_queues.locked_at is null or job_queues.locked_at < (%s - interval '4 hours'))
+        for update
+        skip locked
+      )
+    )
+    and run_at <= %s
+    and attempts < max_attempts
+    and (null::text[] is null or task_identifier = any(null::text[]))
+    and ($2::text[] is null or (flags ?| $2::text[]) is not true)
+    order by priority asc, run_at asc, id asc
+    limit 1
+    for update
+    skip locked
+),
+q as (
+  update %s.job_queues
+    set
+      locked_by = $1::text,
+      locked_at = %s
+    from j
+    where job_queues.queue_name = j.queue_name
+)
+  update %s.jobs
+    set
+      attempts = jobs.attempts + 1,
+      locked_by = $1::text,
+      locked_at = %s
+    from j
+    where jobs.id = j.id
+    returning jobs.id, jobs.queue_name, jobs.task_identifier, jobs.payload, jobs.priority, jobs.run_at, jobs.attempts, jobs.max_attempts, jobs.last_error, jobs.created_at, jobs.updated_at, jobs.key, jobs.revision, jobs.flags, jobs.locked_at, jobs.locked_by`,
+		w.schema, nowExpr,
+		w.schema, nowExpr,
+		nowExpr,
+		w.schema, nowExpr,
+		w.schema, nowExpr)
 
 	var row pgx.Row
 	if w.noPreparedStatements {
