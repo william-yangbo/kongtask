@@ -536,7 +536,7 @@ where job_queues.queue_name = j.queue_name and job_queues.locked_by = $1;`, w.sc
 	return nil
 }
 
-// FailJob marks a job as failed (v0.4.0: jobID is now string)
+// FailJob marks a job as failed (v0.4.0: jobID is now string, moved from database function)
 func (w *Worker) FailJob(ctx context.Context, jobID string, message string) error {
 	conn, err := w.pool.Acquire(ctx)
 	if err != nil {
@@ -544,7 +544,21 @@ func (w *Worker) FailJob(ctx context.Context, jobID string, message string) erro
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT %s.fail_job($1, $2, $3)", w.schema)
+	query := fmt.Sprintf(`with j as (
+update %s.jobs
+set
+last_error = $3,
+run_at = greatest(now(), run_at) + (exp(least(attempts, 10))::text || ' seconds')::interval,
+locked_by = null,
+locked_at = null
+where id = $2 and locked_by = $1
+returning *
+)
+update %s.job_queues
+set locked_by = null, locked_at = null
+from j
+where job_queues.queue_name = j.queue_name and job_queues.locked_by = $1;`, w.schema, w.schema)
+
 	if w.noPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
 		_, err = conn.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, jobID, message)
