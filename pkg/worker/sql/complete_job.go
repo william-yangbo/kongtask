@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// CompleteJob marks a job as completed using the complete_job database function
+// CompleteJob marks a job as completed using inline SQL (moved from database function)
 func CompleteJob(
 	ctx context.Context,
 	compiledSharedOptions CompiledSharedOptions,
@@ -23,7 +23,17 @@ func CompleteJob(
 	defer conn.Release()
 
 	// TODO: retry logic, in case of server connection interruption
-	query := fmt.Sprintf("SELECT FROM %s.complete_job($1, $2)", compiledSharedOptions.EscapedWorkerSchema)
+	query := fmt.Sprintf(`with j as (
+delete from %s.jobs
+where id = $2
+returning *
+)
+update %s.job_queues
+set locked_by = null, locked_at = null
+from j
+where job_queues.queue_name = j.queue_name and job_queues.locked_by = $1;`,
+		compiledSharedOptions.EscapedWorkerSchema,
+		compiledSharedOptions.EscapedWorkerSchema)
 
 	if compiledSharedOptions.NoPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)

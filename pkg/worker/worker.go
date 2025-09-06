@@ -505,7 +505,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	return &job, nil
 }
 
-// CompleteJob marks a job as completed (v0.4.0: jobID is now string)
+// CompleteJob marks a job as completed (v0.4.0: jobID is now string, moved from database function)
 func (w *Worker) CompleteJob(ctx context.Context, jobID string) error {
 	conn, err := w.pool.Acquire(ctx)
 	if err != nil {
@@ -513,7 +513,16 @@ func (w *Worker) CompleteJob(ctx context.Context, jobID string) error {
 	}
 	defer conn.Release()
 
-	query := fmt.Sprintf("SELECT %s.complete_job($1, $2)", w.schema)
+	query := fmt.Sprintf(`with j as (
+delete from %s.jobs
+where id = $2
+returning *
+)
+update %s.job_queues
+set locked_by = null, locked_at = null
+from j
+where job_queues.queue_name = j.queue_name and job_queues.locked_by = $1;`, w.schema, w.schema)
+
 	if w.noPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
 		_, err = conn.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, jobID)
