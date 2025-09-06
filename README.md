@@ -117,6 +117,38 @@ export GRAPHILE_WORKER_NO_PREPARED_STATEMENTS=true
 
 **Note**: Disabling prepared statements may have a small performance impact but is necessary when using external PostgreSQL connection pools.
 
+## What if something goes wrong?
+
+### Task Failure
+
+If a task throws an error, the job is failed and scheduled for retries with exponential back-off. KongTask uses async/await patterns, so assuming you write your task code well, all errors should be cascaded down automatically.
+
+### Graceful Shutdown
+
+If the worker is terminated (`SIGTERM`, `SIGINT`, etc), it triggers a graceful shutdown - i.e. it stops accepting new jobs, waits for the existing jobs to complete, and then exits. If you need to restart your worker, you should do so using this graceful process.
+
+### Unexpected Worker Death
+
+If the worker completely dies unexpectedly (e.g. `process.exit()`, segfault, `SIGKILL`) then the jobs that that worker was executing remain locked for at least 4 hours. Every 8-10 minutes a worker will sweep for jobs that have been locked for more than 4 hours and will make them available to be processed again automatically. If you run many workers, each worker will do this, so it's likely that jobs will be released closer to the 4 hour mark. You can unlock jobs earlier than this by clearing the `locked_at` and `locked_by` columns on the relevant tables.
+
+### Manual Job Recovery
+
+If you need to manually unlock stuck jobs, you can run:
+
+```sql
+-- Check stuck jobs
+SELECT id, task_identifier, locked_at, locked_by, attempts, last_error
+FROM graphile_worker.jobs
+WHERE locked_at IS NOT NULL AND locked_at < NOW() - INTERVAL '1 hour';
+
+-- Reset stuck jobs (use with caution)
+UPDATE graphile_worker.jobs
+SET locked_at = NULL, locked_by = NULL
+WHERE locked_at < NOW() - INTERVAL '4 hours';
+```
+
+**⚠️ Warning**: Only manually unlock jobs if you're certain the worker that locked them is no longer running.
+
 ## Documentation
 
 For detailed information, see:

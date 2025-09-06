@@ -2,10 +2,11 @@ package worker
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/william-yangbo/kongtask/pkg/events"
 	"github.com/william-yangbo/kongtask/pkg/logger"
+	"github.com/william-yangbo/kongtask/pkg/worker/sql"
 )
 
 // Constants for error handling (matching graphile-worker)
@@ -36,7 +38,7 @@ const (
 func generateWorkerID() string {
 	// Generate 9 random bytes (same as graphile-worker v0.5.0)
 	randomBytes := make([]byte, 9)
-	if _, err := rand.Read(randomBytes); err != nil {
+	if _, err := cryptorand.Read(randomBytes); err != nil {
 		// Fallback to timestamp-based ID if crypto/rand fails
 		return fmt.Sprintf("worker-%d", time.Now().UnixNano())
 	}
@@ -109,19 +111,21 @@ type Worker struct {
 	jobMutex  sync.RWMutex     // Protects activeJob access
 
 	// New fields for enhanced worker functionality (v0.4.0 alignment)
-	pollInterval         time.Duration    // Configurable poll interval
-	contiguousErrors     int              // Count of consecutive errors
-	active               bool             // Worker active status
-	activeMutex          sync.RWMutex     // Protects active status
-	releaseCh            chan struct{}    // Channel for worker release signal
-	timer                *time.Timer      // Timer for polling
-	timerMutex           sync.Mutex       // Protects timer access
-	continuous           bool             // Whether worker runs continuously or once
-	noPreparedStatements bool             // Disable prepared statements for pgBouncer compatibility
-	forbiddenFlags       []string         // Static forbidden flags (commit fb9b249)
-	forbiddenFlagsFn     ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
-	useNodeTime          bool             // Use Node's time source instead of PostgreSQL's (commit 5a09a37)
-	timeProvider         TimeProvider     // Time provider for useNodeTime feature (testing support)
+	pollInterval          time.Duration    // Configurable poll interval
+	contiguousErrors      int              // Count of consecutive errors
+	active                bool             // Worker active status
+	activeMutex           sync.RWMutex     // Protects active status
+	releaseCh             chan struct{}    // Channel for worker release signal
+	timer                 *time.Timer      // Timer for polling
+	timerMutex            sync.Mutex       // Protects timer access
+	continuous            bool             // Whether worker runs continuously or once
+	noPreparedStatements  bool             // Disable prepared statements for pgBouncer compatibility
+	forbiddenFlags        []string         // Static forbidden flags (commit fb9b249)
+	forbiddenFlagsFn      ForbiddenFlagsFn // Dynamic forbidden flags function (commit fb9b249)
+	useNodeTime           bool             // Use Node's time source instead of PostgreSQL's (commit 5a09a37)
+	timeProvider          TimeProvider     // Time provider for useNodeTime feature (testing support)
+	resetLockedTimer      *time.Timer      // Timer for periodic locked cleanup (commit 3445867)
+	resetLockedTimerMutex sync.Mutex       // Protects resetLockedTimer access
 }
 
 // NewWorker creates a new worker instance
@@ -354,7 +358,7 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 	}
 	defer conn.Release()
 
-	// Determine forbidden flags
+	// Determine forbidden flags (match TypeScript behavior)
 	var forbiddenFlags []string
 	if w.forbiddenFlags != nil {
 		forbiddenFlags = w.forbiddenFlags
@@ -366,23 +370,46 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
 		forbiddenFlags = flags
 	}
 
-	// Determine time source - use Node time or PostgreSQL time
+	// Convert forbiddenFlags to interface{} (match TypeScript null handling)
+	var forbiddenFlagsParam interface{}
+	if len(forbiddenFlags) > 0 {
+		forbiddenFlagsParam = forbiddenFlags
+	} else {
+		forbiddenFlagsParam = nil
+	}
+
+	// Get supported task names from registered handlers
+	var supportedTaskNames []string
+	for taskName := range w.handlers {
+		supportedTaskNames = append(supportedTaskNames, taskName)
+	}
+
+	// Convert to interface{} for null handling
+	var supportedTaskNamesParam interface{}
+	if len(supportedTaskNames) > 0 {
+		supportedTaskNamesParam = supportedTaskNames
+	} else {
+		supportedTaskNamesParam = nil
+	}
+
+	// Determine time source - use Node time or PostgreSQL time (match TypeScript parameter order)
 	var nowExpr string
 	var args []interface{}
 
 	if w.useNodeTime {
-		nowExpr = "$3::timestamptz"
-		args = []interface{}{w.workerID, forbiddenFlags, w.timeProvider.Now()}
+		nowExpr = "$4::timestamptz"
+		args = []interface{}{w.workerID, supportedTaskNamesParam, forbiddenFlagsParam, w.timeProvider.Now()}
 	} else {
 		nowExpr = "now()"
-		args = []interface{}{w.workerID, forbiddenFlags}
+		args = []interface{}{w.workerID, supportedTaskNamesParam, forbiddenFlagsParam}
 	}
 
 	// Build the complex inline SQL matching graphile-worker's implementation
+	// After commit 3445867, we rely on periodic cleanup instead of 4-hour checks
 	query := fmt.Sprintf(`with j as (
   select jobs.queue_name, jobs.id
     from %s.jobs
-    where (jobs.locked_at is null or jobs.locked_at < (%s - interval '4 hours'))
+    where jobs.locked_at is null
     and (
       jobs.queue_name is null
     or
@@ -390,15 +417,15 @@ func (w *Worker) GetJob(ctx context.Context) (*Job, error) {
         select 1
         from %s.job_queues
         where job_queues.queue_name = jobs.queue_name
-        and (job_queues.locked_at is null or job_queues.locked_at < (%s - interval '4 hours'))
+        and job_queues.locked_at is null
         for update
         skip locked
       )
     )
     and run_at <= %s
     and attempts < max_attempts
-    and (null::text[] is null or task_identifier = any(null::text[]))
-    and ($2::text[] is null or (flags ?| $2::text[]) is not true)
+    and ($2::text[] is null or task_identifier = any($2::text[]))
+    and ($3::text[] is null or (flags ?| $3::text[]) is not true)
     order by priority asc, run_at asc, id asc
     limit 1
     for update
@@ -420,8 +447,8 @@ q as (
     from j
     where jobs.id = j.id
     returning jobs.id, jobs.queue_name, jobs.task_identifier, jobs.payload, jobs.priority, jobs.run_at, jobs.attempts, jobs.max_attempts, jobs.last_error, jobs.created_at, jobs.updated_at, jobs.key, jobs.revision, jobs.flags, jobs.locked_at, jobs.locked_by`,
-		w.schema, nowExpr,
-		w.schema, nowExpr,
+		w.schema,
+		w.schema,
 		nowExpr,
 		w.schema, nowExpr,
 		w.schema, nowExpr)
@@ -429,11 +456,10 @@ q as (
 	var row pgx.Row
 	if w.noPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
-		// Note: QueryExecModeSimpleProtocol must be passed separately from args
 		if w.useNodeTime {
-			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags, w.timeProvider.Now())
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, supportedTaskNamesParam, forbiddenFlagsParam, w.timeProvider.Now())
 		} else {
-			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, forbiddenFlags)
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, w.workerID, supportedTaskNamesParam, forbiddenFlagsParam)
 		}
 	} else {
 		row = conn.QueryRow(ctx, query, args...)
@@ -776,11 +802,15 @@ func (w *Worker) Run(ctx context.Context) error {
 	workerLogger := w.logger.Scope(logger.LogScope{WorkerID: w.workerID})
 	workerLogger.Info(fmt.Sprintf("Worker %s starting (continuous: %v)", w.workerID, w.continuous))
 
+	// Set active and start reset locked timer (commit 3445867)
+	w.setActive(true)
+
 	// Reset contiguous errors at start
 	w.contiguousErrors = 0
 
 	// If not continuous mode, run once and return
 	if !w.continuous {
+		defer w.setActive(false) // Ensure timer is stopped
 		return w.RunOnce(ctx)
 	}
 
@@ -954,7 +984,26 @@ func (w *Worker) isActive() bool {
 func (w *Worker) setActive(active bool) {
 	w.activeMutex.Lock()
 	defer w.activeMutex.Unlock()
+
+	wasActive := w.active
 	w.active = active
+
+	// Start reset locked timer when becoming active (commit 3445867)
+	if active && !wasActive {
+		// Start reset locked timer with initial random delay (0-60 seconds)
+		// to prevent thundering herd
+		initialDelay := time.Duration(rand.Float64()*60000) * time.Millisecond
+
+		// Get configuration from lib
+		// TODO: Get these from CompiledSharedOptions when available
+		minInterval := 8 * time.Minute
+		maxInterval := 10 * time.Minute
+
+		w.scheduleResetLocked(initialDelay, minInterval, maxInterval)
+	} else if !active && wasActive {
+		// Stop reset locked timer when becoming inactive
+		w.cancelResetLockedTimer()
+	}
 }
 
 // GetWorkerID returns the worker ID (public method)
@@ -1012,5 +1061,92 @@ func (w *Worker) cancelTimer() {
 	if w.timer != nil {
 		w.timer.Stop()
 		w.timer = nil
+	}
+}
+
+// resetLockedDelay calculates a random delay between min and max reset intervals (commit 3445867)
+func (w *Worker) resetLockedDelay(minInterval, maxInterval time.Duration) time.Duration {
+	if minInterval >= maxInterval {
+		return minInterval
+	}
+
+	diff := maxInterval - minInterval
+	randomPart := time.Duration(float64(diff.Nanoseconds()) * (rand.Float64()))
+	return minInterval + randomPart
+}
+
+// resetLocked performs periodic cleanup of locked jobs and queues (commit 3445867)
+func (w *Worker) resetLocked(minInterval, maxInterval time.Duration) {
+	// Get connection from pool
+	conn, err := w.pool.Acquire(context.Background())
+	if err != nil {
+		w.logger.Error("Failed to acquire connection for resetLocked", map[string]interface{}{
+			"error": err.Error(),
+		})
+		// Schedule next attempt
+		delay := w.resetLockedDelay(minInterval, maxInterval)
+		w.scheduleResetLocked(delay, minInterval, maxInterval)
+		return
+	}
+	defer conn.Release()
+
+	// Prepare shared options for resetLockedAt
+	sharedOptions := sql.ResetLockedSharedOptions{
+		EscapedWorkerSchema:  fmt.Sprintf("\"%s\"", w.schema),
+		WorkerSchema:         w.schema,
+		NoPreparedStatements: w.noPreparedStatements,
+		UseNodeTime:          w.useNodeTime,
+	}
+
+	// Import the resetLockedAt function from sql package
+	var timeProviderFn func() interface{}
+	if w.useNodeTime && w.timeProvider != nil {
+		timeProviderFn = func() interface{} {
+			return w.timeProvider.Now()
+		}
+	}
+	err = sql.ResetLockedAt(context.Background(), sharedOptions, conn.Conn(), timeProviderFn)
+	if err != nil {
+		w.logger.Error("Failed to reset locked; will try again", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
+	// Schedule next cleanup
+	delay := w.resetLockedDelay(minInterval, maxInterval)
+	w.scheduleResetLocked(delay, minInterval, maxInterval)
+}
+
+// scheduleResetLocked schedules the next resetLocked call (commit 3445867)
+func (w *Worker) scheduleResetLocked(delay, minInterval, maxInterval time.Duration) {
+	w.resetLockedTimerMutex.Lock()
+	defer w.resetLockedTimerMutex.Unlock()
+
+	// Cancel existing timer
+	if w.resetLockedTimer != nil {
+		w.resetLockedTimer.Stop()
+	}
+
+	// Schedule next reset
+	w.resetLockedTimer = time.AfterFunc(delay, func() {
+		// Check if worker is still active
+		w.activeMutex.RLock()
+		active := w.active
+		w.activeMutex.RUnlock()
+
+		if active {
+			w.resetLocked(minInterval, maxInterval)
+		}
+	})
+}
+
+// cancelResetLockedTimer cancels the reset locked timer (commit 3445867)
+func (w *Worker) cancelResetLockedTimer() {
+	w.resetLockedTimerMutex.Lock()
+	defer w.resetLockedTimerMutex.Unlock()
+
+	if w.resetLockedTimer != nil {
+		w.resetLockedTimer.Stop()
+		w.resetLockedTimer = nil
 	}
 }

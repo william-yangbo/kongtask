@@ -59,19 +59,28 @@ func GetJob(
 	var nowExpr string
 	var args []interface{}
 
+	// Handle flagsToSkip parameter (match TypeScript behavior)
+	var flagsParam interface{}
+	if len(flagsToSkip) > 0 {
+		flagsParam = flagsToSkip
+	} else {
+		flagsParam = nil
+	}
+
 	if useNodeTime && timeProvider != nil {
 		nowExpr = "$4::timestamptz"
-		args = []interface{}{workerId, supportedTaskNames, flagsToSkip, timeProvider()}
+		args = []interface{}{workerId, supportedTaskNames, flagsParam, timeProvider()}
 	} else {
 		nowExpr = "now()"
-		args = []interface{}{workerId, supportedTaskNames, flagsToSkip}
+		args = []interface{}{workerId, supportedTaskNames, flagsParam}
 	}
 
 	// Build the complex inline SQL matching graphile-worker's implementation
+	// After commit 3445867, we rely on periodic cleanup instead of 4-hour checks
 	query := fmt.Sprintf(`with j as (
   select jobs.queue_name, jobs.id
     from %s.jobs
-    where (jobs.locked_at is null or jobs.locked_at < (%s - interval '4 hours'))
+    where jobs.locked_at is null
     and (
       jobs.queue_name is null
     or
@@ -79,7 +88,7 @@ func GetJob(
         select 1
         from %s.job_queues
         where job_queues.queue_name = jobs.queue_name
-        and (job_queues.locked_at is null or job_queues.locked_at < (%s - interval '4 hours'))
+        and job_queues.locked_at is null
         for update
         skip locked
       )
@@ -109,8 +118,8 @@ q as (
     from j
     where jobs.id = j.id
     returning jobs.id, jobs.queue_name, jobs.task_identifier, jobs.payload, jobs.priority, jobs.run_at, jobs.attempts, jobs.max_attempts, jobs.last_error, jobs.created_at, jobs.updated_at, jobs.key, jobs.revision, jobs.flags, jobs.locked_at, jobs.locked_by`,
-		compiledSharedOptions.EscapedWorkerSchema, nowExpr,
-		compiledSharedOptions.EscapedWorkerSchema, nowExpr,
+		compiledSharedOptions.EscapedWorkerSchema,
+		compiledSharedOptions.EscapedWorkerSchema,
 		nowExpr,
 		compiledSharedOptions.EscapedWorkerSchema, nowExpr,
 		compiledSharedOptions.EscapedWorkerSchema, nowExpr)
@@ -119,9 +128,9 @@ q as (
 	if compiledSharedOptions.NoPreparedStatements {
 		// Use simple protocol to avoid prepared statements (for pgBouncer compatibility)
 		if useNodeTime && timeProvider != nil {
-			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, workerId, supportedTaskNames, flagsToSkip, timeProvider())
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, workerId, supportedTaskNames, flagsParam, timeProvider())
 		} else {
-			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, workerId, supportedTaskNames, flagsToSkip)
+			row = conn.QueryRow(ctx, query, pgx.QueryExecModeSimpleProtocol, workerId, supportedTaskNames, flagsParam)
 		}
 	} else {
 		row = conn.QueryRow(ctx, query, args...)
