@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,6 +34,11 @@ func main() {
 	// 2. Use the SQL modules like this:
 
 	exampleUsage(options)
+
+	// Show mock usage example as well
+	fmt.Println("\n" + strings.Repeat("-", 50))
+	fmt.Println("Mock Usage Example:")
+	mockUsage()
 }
 
 func exampleUsage(options sql.CompiledSharedOptions) {
